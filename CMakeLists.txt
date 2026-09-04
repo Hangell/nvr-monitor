@@ -47,3 +47,29 @@ if(BUILD_TESTING)
     target_link_libraries(test_config PRIVATE Threads::Threads)
     add_test(NAME config COMMAND test_config)
 endif()
+
+install(TARGETS nvr-monitor
+    RUNTIME DESTINATION bin
+)
+
+install(DIRECTORY config/
+    DESTINATION share/nvr-monitor/config
+)
+
+install(DIRECTORY assets/
+    DESTINATION share/nvr-monitor/assets
+)
+
+install(FILES assets/icons/nvr-monitor-256.png
+    DESTINATION share/icons/hicolor/256x256/apps
+    RENAME nvr-monitor.png
+)
+
+install(FILES assets/icons/nvr-monitor-128.png
+    DESTINATION share/icons/hicolor/128x128/apps
+    RENAME nvr-monitor.png
+)
+
+install(FILES desktop/nvr-monitor.desktop
+    DESTINATION share/applications
+)

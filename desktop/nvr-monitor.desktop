@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NVR Monitor
+Comment=Monitor de câmeras NVR
+Exec=nvr-monitor
+Icon=nvr-monitor
+Terminal=false
+Categories=AudioVideo;Video;Security;
+StartupNotify=true

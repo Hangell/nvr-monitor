@@ -1,0 +1,10 @@
+/usr/local/bin/nvr-monitor
+/usr/local/share/nvr-monitor/config/cameras.example.json
+/usr/local/share/nvr-monitor/config/cameras.json
+/usr/local/share/nvr-monitor/assets/icons/nvr-monitor-128.png
+/usr/local/share/nvr-monitor/assets/icons/nvr-monitor-256.png
+/usr/local/share/nvr-monitor/assets/icons/nvr-monitor-window.bmp
+/usr/local/share/nvr-monitor/assets/icons/nvr-monitor.png
+/usr/local/share/icons/hicolor/256x256/apps/nvr-monitor.png
+/usr/local/share/icons/hicolor/128x128/apps/nvr-monitor.png
+/usr/local/share/applications/nvr-monitor.desktop

@@ -34,3 +34,7 @@
 /media/void/Hangell/www/software/nvr-monitor/build/CMakeFiles/test.dir
 /media/void/Hangell/www/software/nvr-monitor/build/CMakeFiles/edit_cache.dir
 /media/void/Hangell/www/software/nvr-monitor/build/CMakeFiles/rebuild_cache.dir
+/media/void/Hangell/www/software/nvr-monitor/build/CMakeFiles/list_install_components.dir
+/media/void/Hangell/www/software/nvr-monitor/build/CMakeFiles/install.dir
+/media/void/Hangell/www/software/nvr-monitor/build/CMakeFiles/install/local.dir
+/media/void/Hangell/www/software/nvr-monitor/build/CMakeFiles/install/strip.dir
