@@ -1,0 +1,48 @@
+Start testing: Sep 03 19:50 -03
+----------------------------------------------------------
+1/3 Testing: layout
+1/3 Test: layout
+Command: "/media/void/Hangell/www/software/nvr-monitor/build/test_layout"
+Directory: /media/void/Hangell/www/software/nvr-monitor/build
+"layout" start time: Sep 03 19:50 -03
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"layout" end time: Sep 03 19:50 -03
+"layout" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/3 Testing: rtsp_uri
+2/3 Test: rtsp_uri
+Command: "/media/void/Hangell/www/software/nvr-monitor/build/test_rtsp_uri"
+Directory: /media/void/Hangell/www/software/nvr-monitor/build
+"rtsp_uri" start time: Sep 03 19:50 -03
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"rtsp_uri" end time: Sep 03 19:50 -03
+"rtsp_uri" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/3 Testing: config
+3/3 Test: config
+Command: "/media/void/Hangell/www/software/nvr-monitor/build/test_config"
+Directory: /media/void/Hangell/www/software/nvr-monitor/build
+"config" start time: Sep 03 19:50 -03
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"config" end time: Sep 03 19:50 -03
+"config" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Sep 03 19:50 -03
