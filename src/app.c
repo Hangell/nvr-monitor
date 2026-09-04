@@ -1,37 +1,60 @@
 #include "nvr/app.h"
 #include "nvr/camera_manager.h"
 #include "nvr/config.h"
+#include "nvr/database.h"
 #include "nvr/logger.h"
 #include "nvr/renderer.h"
 #include "nvr/ui.h"
 #include <SDL.h>
 #include <libavutil/log.h>
+#include <string.h>
+#include <unistd.h>
+
+static int has_suffix(const char *value,const char *suffix){size_t a=strlen(value),b=strlen(suffix);return a>=b&&!strcmp(value+a-b,suffix);}
 
 int nvr_app_run(const char *config_path) {
     /* FFmpeg can include credential-bearing URLs in diagnostics. Our own logs are sanitized. */
     av_log_set_level(AV_LOG_QUIET);
-    NvrConfig config;
+    char database_path[512];
+    const char *legacy_path="config/cameras.json";
+    if(has_suffix(config_path,".json")){
+        size_t length=strlen(config_path)-5;
+        if(length+4>=sizeof(database_path))return 1;
+        memcpy(database_path,config_path,length);strcpy(database_path+length,".db");legacy_path=config_path;
+    }else snprintf(database_path,sizeof(database_path),"%s",config_path);
+    int new_database=access(database_path,F_OK)!=0;
+    NvrDatabase database;
     char error[256];
-    if (nvr_config_load(config_path, &config, error, sizeof(error))) {
-        nvr_log(NVR_LOG_ERROR, "Configuração: %s (%s)", error, config_path);
+    if(nvr_database_open(&database,database_path,error,sizeof(error))){
+        nvr_log(NVR_LOG_ERROR,"Banco de perfis: %s",error);return 1;
+    }
+    NvrConfig config={0};
+    if(new_database&&access(legacy_path,F_OK)==0&&nvr_config_load(legacy_path,&config,error,sizeof(error))==0){
+        if(nvr_database_replace_all(&database,&config,error,sizeof(error)))nvr_log(NVR_LOG_WARN,"Migração JSON: %s",error);
+        else nvr_log(NVR_LOG_INFO,"Perfis migrados de %s para %s",legacy_path,database_path);
+    }else if(nvr_database_load(&database,&config,error,sizeof(error))){
+        nvr_log(NVR_LOG_ERROR,"Leitura dos perfis: %s",error);nvr_database_close(&database);return 1;
+    }
+    if(!config.count&&nvr_database_load(&database,&config,error,sizeof(error))){
+        nvr_log(NVR_LOG_ERROR,"Leitura dos perfis: %s",error);nvr_database_close(&database);
         return 1;
     }
     NvrCameraManager manager;
     if (nvr_camera_manager_init(&manager, &config)) {
-        nvr_log(NVR_LOG_ERROR, "Não foi possível criar as câmeras"); nvr_config_free(&config); return 1;
+        nvr_log(NVR_LOG_ERROR, "Não foi possível criar as câmeras"); nvr_config_free(&config); nvr_database_close(&database); return 1;
     }
     NvrRenderer renderer;
     if (nvr_renderer_init(&renderer, "NVR Monitor", 1280, 720, manager.count)) {
         nvr_log(NVR_LOG_ERROR, "Não foi possível iniciar o SDL: %s", SDL_GetError());
-        nvr_camera_manager_destroy(&manager); nvr_config_free(&config); return 1;
+        nvr_camera_manager_destroy(&manager); nvr_config_free(&config); nvr_database_close(&database); return 1;
     }
     if (nvr_camera_manager_start(&manager)) {
         nvr_log(NVR_LOG_ERROR, "Não foi possível iniciar as threads das câmeras");
-        nvr_renderer_destroy(&renderer); nvr_camera_manager_destroy(&manager); nvr_config_free(&config); return 1;
+        nvr_renderer_destroy(&renderer); nvr_camera_manager_destroy(&manager); nvr_config_free(&config); nvr_database_close(&database); return 1;
     }
     nvr_log(NVR_LOG_INFO, "%zu câmera(s) iniciada(s). Duplo clique maximiza; Esc volta; Q encerra.", manager.count);
     NvrUi ui;
-    nvr_ui_init(&ui, config_path);
+    nvr_ui_init(&ui, &database);
     int running = 1;
     while (running) {
         SDL_Event event;
@@ -45,5 +68,6 @@ int nvr_app_run(const char *config_path) {
     nvr_renderer_destroy(&renderer);
     nvr_camera_manager_destroy(&manager);
     nvr_config_free(&config);
+    nvr_database_close(&database);
     return 0;
 }

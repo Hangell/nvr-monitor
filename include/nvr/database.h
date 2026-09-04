@@ -13,6 +13,11 @@ int nvr_database_load(NvrDatabase *database, NvrConfig *config,
                       char *error, size_t error_size);
 int nvr_database_insert_camera(NvrDatabase *database, const NvrCameraConfig *camera,
                                char *error, size_t error_size);
+int nvr_database_update_camera(NvrDatabase *database, size_t index,
+                               const NvrCameraConfig *camera,
+                               char *error, size_t error_size);
+int nvr_database_delete_camera(NvrDatabase *database, size_t index,
+                               char *error, size_t error_size);
 int nvr_database_replace_all(NvrDatabase *database, const NvrConfig *config,
                              char *error, size_t error_size);
 void nvr_database_close(NvrDatabase *database);

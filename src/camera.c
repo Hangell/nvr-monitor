@@ -9,10 +9,37 @@
 #include <libavcodec/packet.h>
 #include <libavformat/avformat.h>
 #include <libavutil/error.h>
+#include <libavutil/time.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+#define NVR_STREAM_DELAY_US 2000000LL
+
+typedef struct PacketNode {AVPacket *packet;int64_t received_us;struct PacketNode *next;} PacketNode;
+
+static void packet_queue_clear(PacketNode **head){while(*head){PacketNode *node=*head;*head=node->next;av_packet_free(&node->packet);free(node);}}
+
+static int packet_queue_push(PacketNode **head,PacketNode **tail,const AVPacket *packet){
+    PacketNode *node=calloc(1,sizeof(*node));if(!node)return -1;node->packet=av_packet_clone(packet);
+    if(!node->packet){free(node);return -1;}node->received_us=av_gettime_relative();
+    if(*tail)(*tail)->next=node;else *head=node;*tail=node;return 0;
+}
+
+static void decode_packet(NvrCamera *camera,NvrDecoder *decoder,const AVPacket *packet){
+    if(nvr_decoder_send(decoder,packet)<0)return;
+    for(;;){uint8_t *pixels;int width,height,pitch;int result=nvr_decoder_receive_rgba(decoder,&pixels,&width,&height,&pitch);
+        if(result<0)break;
+        nvr_frame_queue_push(&camera->frames,pixels,width,height,pitch);}
+}
 
 static int sleep_interruptible(NvrCamera *camera, unsigned seconds) {
     for (unsigned i = 0; i < seconds * 10 && !atomic_load(&camera->stop_requested); ++i) {
+#ifdef _WIN32
+        Sleep(100);
+#else
         struct timespec delay = {0, 100000000}; nanosleep(&delay, NULL);
+#endif
     }
     return atomic_load(&camera->stop_requested);
 }
@@ -21,7 +48,8 @@ static void *camera_worker(void *data) {
     NvrCamera *camera = data;
     unsigned backoff = 1;
     while (!atomic_load(&camera->stop_requested)) {
-        const char *password = camera->config.password_env[0] ? getenv(camera->config.password_env) : "";
+        const char *password = camera->config.password[0] ? camera->config.password :
+                               camera->config.password_env[0] ? getenv(camera->config.password_env) : "";
         if (!password) {
             nvr_log(NVR_LOG_ERROR, "Câmera '%s': variável de senha não definida", camera->config.name);
             atomic_store(&camera->state, NVR_CAMERA_DISCONNECTED);
@@ -56,20 +84,21 @@ static void *camera_worker(void *data) {
         }
         atomic_store(&camera->state, NVR_CAMERA_ONLINE); backoff = 1;
         AVPacket *packet = av_packet_alloc();
+        PacketNode *delay_head=NULL,*delay_tail=NULL;
         while (packet && !atomic_load(&camera->stop_requested) &&
                selected_stream == atomic_load(&camera->main_stream_requested) &&
                av_read_frame(session.format, packet) >= 0) {
-            if (packet->stream_index == session.video_stream && nvr_decoder_send(&decoder, packet) >= 0) {
-                for (;;) {
-                    uint8_t *pixels; int width, height, pitch;
-                    result = nvr_decoder_receive_rgba(&decoder, &pixels, &width, &height, &pitch);
-                    if (result < 0) break;
-                    nvr_frame_queue_push(&camera->frames, pixels, width, height, pitch);
+            if (packet->stream_index == session.video_stream) {
+                packet_queue_push(&delay_head,&delay_tail,packet);
+                int64_t now=av_gettime_relative();
+                while(delay_head&&now-delay_head->received_us>=NVR_STREAM_DELAY_US){
+                    PacketNode *ready=delay_head;delay_head=ready->next;if(!delay_head)delay_tail=NULL;
+                    decode_packet(camera,&decoder,ready->packet);av_packet_free(&ready->packet);free(ready);
                 }
             }
             av_packet_unref(packet);
         }
-        av_packet_free(&packet); nvr_decoder_close(&decoder); nvr_rtsp_close(&session);
+        packet_queue_clear(&delay_head);av_packet_free(&packet); nvr_decoder_close(&decoder); nvr_rtsp_close(&session);
         if (!atomic_load(&camera->stop_requested)) {
             atomic_store(&camera->state, NVR_CAMERA_RECONNECTING);
             nvr_log(NVR_LOG_WARN, "Câmera '%s': stream interrompido; reconectando", camera->config.name);

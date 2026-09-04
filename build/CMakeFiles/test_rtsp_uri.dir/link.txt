@@ -1,1 +1,0 @@
-/usr/bin/cc CMakeFiles/test_rtsp_uri.dir/tests/test_rtsp_uri.c.o CMakeFiles/test_rtsp_uri.dir/src/rtsp.c.o CMakeFiles/test_rtsp_uri.dir/src/config.c.o CMakeFiles/test_rtsp_uri.dir/src/logger.c.o -o test_rtsp_uri 

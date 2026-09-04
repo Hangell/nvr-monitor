@@ -1,0 +1,14 @@
+if(NOT EXISTS "@CMAKE_CURRENT_BINARY_DIR@/install_manifest.txt")
+    message(FATAL_ERROR "Manifesto de instalação não encontrado. Execute a instalação primeiro.")
+endif()
+
+file(STRINGS "@CMAKE_CURRENT_BINARY_DIR@/install_manifest.txt" installed_files)
+list(REVERSE installed_files)
+foreach(installed_file IN LISTS installed_files)
+    if(EXISTS "$ENV{DESTDIR}${installed_file}" OR IS_SYMLINK "$ENV{DESTDIR}${installed_file}")
+        message(STATUS "Removendo $ENV{DESTDIR}${installed_file}")
+        file(REMOVE "$ENV{DESTDIR}${installed_file}")
+    endif()
+endforeach()
+
+message(STATUS "Desinstalação concluída. Os perfis do usuário foram preservados.")

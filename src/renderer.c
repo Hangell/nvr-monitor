@@ -1,7 +1,43 @@
 #include "nvr/renderer.h"
 #include "nvr/layout.h"
 #include "nvr/logger.h"
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+static SDL_Surface *load_application_icon(void) {
+    const char *override = getenv("NVR_ICON_PATH");
+    const char *paths[] = {
+        override,
+        NVR_SOURCE_ICON_PATH,
+        NVR_INSTALLED_ICON_PATH,
+        "assets/icons/nvr-monitor-window.bmp",
+        "../share/nvr-monitor/assets/icons/nvr-monitor-window.bmp"
+    };
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); ++i) {
+        if (paths[i] && paths[i][0]) {
+            SDL_Surface *icon = SDL_LoadBMP(paths[i]);
+            if (icon) return icon;
+        }
+    }
+    char *base = SDL_GetBasePath();
+    if (base) {
+        const char *relative_paths[] = {
+            "../share/nvr-monitor/assets/icons/nvr-monitor-window.bmp",
+            "../assets/icons/nvr-monitor-window.bmp"
+        };
+        for (size_t i = 0; i < sizeof(relative_paths) / sizeof(relative_paths[0]); ++i) {
+            char candidate[1024];
+            int used = snprintf(candidate, sizeof(candidate), "%s%s", base, relative_paths[i]);
+            if (used >= 0 && (size_t)used < sizeof(candidate)) {
+                SDL_Surface *icon = SDL_LoadBMP(candidate);
+                if (icon) { SDL_free(base); return icon; }
+            }
+        }
+        SDL_free(base);
+    }
+    return NULL;
+}
 
 int nvr_renderer_init(NvrRenderer *view, const char *title, int width, int height,
                       size_t camera_count) {
@@ -9,6 +45,10 @@ int nvr_renderer_init(NvrRenderer *view, const char *title, int width, int heigh
     *view = (NvrRenderer){.fullscreen_camera = -1, .texture_count = camera_count};
     view->window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                     width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    if (view->window) {
+        SDL_Surface *icon=load_application_icon();
+        if(icon){Uint32 transparent=SDL_MapRGB(icon->format,255,0,255);SDL_SetColorKey(icon,SDL_TRUE,transparent);SDL_SetWindowIcon(view->window,icon);SDL_FreeSurface(icon);}
+    }
     if (view->window) view->renderer = SDL_CreateRenderer(view->window, -1,
                                       SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!view->renderer && view->window) view->renderer = SDL_CreateRenderer(view->window, -1, 0);
@@ -74,13 +114,15 @@ void nvr_renderer_toggle_fullscreen_camera(NvrRenderer *view, int index) {
     if (view) view->fullscreen_camera = view->fullscreen_camera == index ? -1 : index;
 }
 int nvr_renderer_resize_cameras(NvrRenderer *view, size_t count) {
-    if (!view || count < view->texture_count) return -1;
+    if (!view) return -1;
     SDL_Texture **textures = calloc(count ? count : 1, sizeof(*textures));
     uint64_t *serials = calloc(count ? count : 1, sizeof(*serials));
     if (!textures || !serials) { free(textures); free(serials); return -1; }
-    for (size_t i = 0; i < view->texture_count; ++i) {
+    size_t shared=count<view->texture_count?count:view->texture_count;
+    for (size_t i = 0; i < shared; ++i) {
         textures[i] = view->textures[i]; serials[i] = view->serials[i];
     }
+    for(size_t i=count;i<view->texture_count;i++)SDL_DestroyTexture(view->textures[i]);
     free(view->textures); free(view->serials);
     view->textures = textures; view->serials = serials; view->texture_count = count;
     return 0;

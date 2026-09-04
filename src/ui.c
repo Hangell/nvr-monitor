@@ -79,36 +79,40 @@ static void button(SDL_Renderer *r, SDL_Rect rect, const char *label, int active
     text(r, rect.x + 12, rect.y + 10, 2, (SDL_Color){235,240,246,255}, label);
 }
 
+static void danger_button(SDL_Renderer *r,SDL_Rect rect,const char *label){SDL_SetRenderDrawColor(r,150,35,42,255);SDL_RenderFillRect(r,&rect);SDL_SetRenderDrawColor(r,230,85,90,255);SDL_RenderDrawRect(r,&rect);text(r,rect.x+12,rect.y+10,2,(SDL_Color){255,245,245,255},label);}
+
 static int inside(int x, int y, SDL_Rect rect) {
     return x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h;
 }
 
-void nvr_ui_init(NvrUi *ui, const char *config_path) {
-    memset(ui, 0, sizeof(*ui)); ui->active_field = FIELD_NAME;
-    snprintf(ui->config_path, sizeof(ui->config_path), "%s", config_path);
+void nvr_ui_init(NvrUi *ui, NvrDatabase *database) {
+    memset(ui, 0, sizeof(*ui)); ui->active_field = FIELD_NAME;ui->editing_index=-1;ui->database=database;
 }
 
 static void open_add(NvrUi *ui) {
     memset(ui->fields, 0, sizeof(ui->fields));
     strcpy(ui->fields[FIELD_PORT], "554"); strcpy(ui->fields[FIELD_GRID_PATH], "/onvif2");
     strcpy(ui->fields[FIELD_MAIN_PATH], "/onvif1"); strcpy(ui->fields[FIELD_TRANSPORT], "udp");
-    ui->panel = NVR_UI_ADD_CAMERA; ui->active_field = FIELD_NAME; ui->status[0] = '\0';
+    ui->panel = NVR_UI_ADD_CAMERA; ui->active_field = FIELD_NAME;ui->editing_index=-1;ui->confirm_delete=0; ui->status[0] = '\0';
     SDL_StartTextInput();
+}
+
+static void open_edit(NvrUi *ui,const NvrCameraConfig *camera,size_t index){
+    memset(ui->fields,0,sizeof(ui->fields));
+    snprintf(ui->fields[FIELD_NAME],sizeof(ui->fields[0]),"%s",camera->name);
+    snprintf(ui->fields[FIELD_HOST],sizeof(ui->fields[0]),"%s",camera->host);
+    snprintf(ui->fields[FIELD_PORT],sizeof(ui->fields[0]),"%u",camera->port);
+    snprintf(ui->fields[FIELD_USER],sizeof(ui->fields[0]),"%s",camera->username);
+    snprintf(ui->fields[FIELD_PASSWORD],sizeof(ui->fields[0]),"%s",camera->password);
+    snprintf(ui->fields[FIELD_GRID_PATH],sizeof(ui->fields[0]),"%s",camera->grid_path);
+    snprintf(ui->fields[FIELD_MAIN_PATH],sizeof(ui->fields[0]),"%s",camera->main_path);
+    snprintf(ui->fields[FIELD_TRANSPORT],sizeof(ui->fields[0]),"%s",nvr_transport_name(camera->transport));
+    ui->editing_index=(int)index;ui->confirm_delete=0;ui->active_field=FIELD_NAME;ui->panel=NVR_UI_ADD_CAMERA;ui->status[0]='\0';SDL_StartTextInput();
 }
 
 static void close_panel(NvrUi *ui) { ui->panel = NVR_UI_NONE; SDL_StopTextInput(); }
 
-static int save_manager_config(NvrUi *ui, NvrCameraManager *manager) {
-    NvrCameraConfig *items = calloc(manager->count, sizeof(*items));
-    if (!items) return -1;
-    for (size_t i = 0; i < manager->count; ++i) items[i] = manager->cameras[i].config;
-    NvrConfig config = {items, manager->count}; char error[128];
-    int result = nvr_config_save(ui->config_path, &config, error, sizeof(error)); free(items);
-    if (result) snprintf(ui->status, sizeof(ui->status), "ERRO AO SALVAR CONFIGURACAO");
-    return result;
-}
-
-static int add_camera(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
+static int save_camera(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
     char *end = NULL; long port = strtol(ui->fields[FIELD_PORT], &end, 10);
     if (!ui->fields[FIELD_NAME][0] || !ui->fields[FIELD_HOST][0] || !end || *end ||
         port < 1 || port > 65535 ||
@@ -119,23 +123,36 @@ static int add_camera(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
 #define COPY_FIELD(destination, source) do { if (strlen(source) >= sizeof(destination)) return -1; strcpy(destination, source); } while (0)
     COPY_FIELD(camera.name, ui->fields[FIELD_NAME]); COPY_FIELD(camera.host, ui->fields[FIELD_HOST]);
     COPY_FIELD(camera.username, ui->fields[FIELD_USER]); COPY_FIELD(camera.grid_path, ui->fields[FIELD_GRID_PATH]);
-    COPY_FIELD(camera.main_path, ui->fields[FIELD_MAIN_PATH]);
+    COPY_FIELD(camera.main_path, ui->fields[FIELD_MAIN_PATH]); COPY_FIELD(camera.password,ui->fields[FIELD_PASSWORD]);
 #undef COPY_FIELD
     camera.transport = !strcmp(ui->fields[FIELD_TRANSPORT], "udp") ? NVR_TRANSPORT_UDP : NVR_TRANSPORT_TCP;
-    if (ui->fields[FIELD_PASSWORD][0]) {
-        snprintf(camera.password_env, sizeof(camera.password_env), "NVR_CAMERA_%zu_PASSWORD", manager->count + 1);
-        if (setenv(camera.password_env, ui->fields[FIELD_PASSWORD], 1)) return -1;
+    char error[160];
+    if(ui->editing_index>=0){
+        size_t index=(size_t)ui->editing_index;
+        if(!camera.password[0])snprintf(camera.password_env,sizeof(camera.password_env),"%s",manager->cameras[index].config.password_env);
+        if(nvr_camera_manager_update(manager,index,&camera)||nvr_database_update_camera(ui->database,index,&camera,error,sizeof(error))){
+            snprintf(ui->status,sizeof(ui->status),"NAO FOI POSSIVEL ATUALIZAR A CAMERA");return -1;
+        }
+        close_panel(ui);snprintf(ui->status,sizeof(ui->status),"PERFIL DA CAMERA ATUALIZADO");return 0;
     }
-    if (nvr_renderer_resize_cameras(view, manager->count + 1) || nvr_camera_manager_add(manager, &camera)) {
+    if (nvr_renderer_resize_cameras(view, manager->count + 1) || nvr_camera_manager_add(manager, &camera)||
+        nvr_database_insert_camera(ui->database,&camera,error,sizeof(error))) {
         snprintf(ui->status, sizeof(ui->status), "NAO FOI POSSIVEL ADICIONAR A CAMERA"); return -1;
     }
-    save_manager_config(ui, manager);
     close_panel(ui);
-    if (camera.password_env[0])
-        snprintf(ui->status, sizeof(ui->status), "ADICIONADA - AO REINICIAR EXPORTE %s", camera.password_env);
-    else
-        snprintf(ui->status, sizeof(ui->status), "CAMERA ADICIONADA");
+    snprintf(ui->status, sizeof(ui->status), "CAMERA ADICIONADA AO BANCO DE PERFIS");
     return 0;
+}
+
+static int delete_camera(NvrUi *ui,NvrRenderer *view,NvrCameraManager *manager){
+    if(ui->editing_index<0)return -1;
+    size_t index=(size_t)ui->editing_index;char error[160];
+    if(!ui->confirm_delete){ui->confirm_delete=1;snprintf(ui->status,sizeof(ui->status),"CLIQUE EM CONFIRMAR PARA DELETAR");return 0;}
+    if(nvr_camera_manager_remove(manager,index)||nvr_database_delete_camera(ui->database,index,error,sizeof(error))){
+        snprintf(ui->status,sizeof(ui->status),"NAO FOI POSSIVEL DELETAR A CAMERA");return -1;
+    }
+    for(size_t i=0;i<view->texture_count;i++){SDL_DestroyTexture(view->textures[i]);view->textures[i]=NULL;}
+    nvr_renderer_resize_cameras(view,manager->count);close_panel(ui);snprintf(ui->status,sizeof(ui->status),"CAMERA DELETADA");return 0;
 }
 
 static void leave_fullscreen(NvrRenderer *view, NvrCameraManager *manager) {
@@ -168,7 +185,7 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
             else if (key == SDLK_BACKSPACE && ui->active_field != FIELD_TRANSPORT) {
                 size_t length = strlen(ui->fields[ui->active_field]); if (length) ui->fields[ui->active_field][length-1] = '\0';
             } else if (key == SDLK_RETURN) {
-                if (ui->active_field == FIELD_TRANSPORT) add_camera(ui, view, manager);
+                if (ui->active_field == FIELD_TRANSPORT) save_camera(ui, view, manager);
                 else ui->active_field++;
             }
         }
@@ -188,8 +205,9 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
                 return 1;
             }
         }
-        if (inside(x, y, (SDL_Rect){250,440,170,36})) add_camera(ui, view, manager);
+        if (inside(x, y, (SDL_Rect){250,440,170,36})) save_camera(ui, view, manager);
         else if (inside(x, y, (SDL_Rect){435,440,150,36})) close_panel(ui);
+        else if(ui->editing_index>=0&&inside(x,y,(SDL_Rect){600,440,170,36}))delete_camera(ui,view,manager);
         return 1;
     }
     if (ui->panel == NVR_UI_LAYOUT) {
@@ -200,6 +218,15 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
     }
     if (view->fullscreen_camera < 0 && inside(x,y,(SDL_Rect){8,6,170,32})) { open_add(ui); return 1; }
     if (view->fullscreen_camera < 0 && inside(x,y,(SDL_Rect){188,6,130,32})) { ui->panel=NVR_UI_LAYOUT; return 1; }
+    if(view->fullscreen_camera<0&&manager->count){
+        int width,height;SDL_GetWindowSize(view->window,&width,&height);NvrRect areas[9];
+        size_t slots=view->layout_slots?view->layout_slots:manager->count;if(slots<manager->count)slots=manager->count;
+        nvr_layout_grid_slots(manager->count,slots,width,height-NVR_MENU_HEIGHT,areas,manager->count);
+        for(size_t i=0;i<manager->count;i++){
+            SDL_Rect label={areas[i].x+5,areas[i].y+NVR_MENU_HEIGHT+5,220,22};
+            if(inside(x,y,label)){open_edit(ui,&manager->cameras[i].config,i);return 1;}
+        }
+    }
     if (event->button.clicks != 2 || !manager->count) return 1;
     int selected = view->fullscreen_camera;
     if (selected < 0) {
@@ -251,7 +278,7 @@ void nvr_ui_draw(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
         SDL_SetRenderDrawBlendMode(view->renderer,SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(view->renderer,5,8,12,225); SDL_Rect shade={0,NVR_MENU_HEIGHT,10000,10000}; SDL_RenderFillRect(view->renderer,&shade);
         SDL_SetRenderDrawColor(view->renderer,24,31,40,255); SDL_Rect panel={90,58,850,530}; SDL_RenderFillRect(view->renderer,&panel);
-        text(view->renderer,112,72,2,(SDL_Color){238,242,247,255},"ADICIONAR CAMERA");
+        text(view->renderer,112,72,2,(SDL_Color){238,242,247,255},ui->editing_index>=0?"EDITAR CAMERA":"ADICIONAR CAMERA");
         for(int i=0;i<FIELD_COUNT;i++) {
             int y=94+i*42; text(view->renderer,112,y+10,1,(SDL_Color){171,185,201,255},field_labels[i]);
             SDL_SetRenderDrawColor(view->renderer,i==ui->active_field?35:14,i==ui->active_field?91:20,i==ui->active_field?135:27,255);
@@ -262,9 +289,10 @@ void nvr_ui_draw(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
             text(view->renderer,258,y+10,1,(SDL_Color){235,240,246,255},shown);
         }
         button(view->renderer,(SDL_Rect){250,440,170,36},"SALVAR",1); button(view->renderer,(SDL_Rect){435,440,150,36},"CANCELAR",0);
+        if(ui->editing_index>=0)danger_button(view->renderer,(SDL_Rect){600,440,170,36},ui->confirm_delete?"CONFIRMAR":"DELETAR");
         text(view->renderer,112,496,1,(SDL_Color){247,188,76,255},"YOOSEE: ATIVE O NVR NO APP DO CELULAR E SELECIONE UDP.");
         text(view->renderer,112,516,1,(SDL_Color){161,176,194,255},"TESTE: FFPLAY -RTSP_TRANSPORT UDP RTSP://USUARIO:SENHA@IP:554/ONVIF1");
-        text(view->renderer,112,536,1,(SDL_Color){161,176,194,255},"CODIFIQUE CARACTERES ESPECIAIS NO TESTE. A SENHA NAO SERA GRAVADA.");
+        text(view->renderer,112,536,1,(SDL_Color){161,176,194,255},"PERFIL E ACESSO SAO SALVOS NO SQLITE LOCAL COM PERMISSAO 0600.");
         if(ui->status[0]) text(view->renderer,112,556,1,(SDL_Color){240,90,90,255},ui->status);
     }
 }

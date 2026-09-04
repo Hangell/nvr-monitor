@@ -66,3 +66,11 @@ int nvr_camera_manager_remove(NvrCameraManager *manager, size_t index) {
         if (from != index) items[to++] = manager->cameras[from].config;
     int result = rebuild(manager, items, count); free(items); return result;
 }
+
+int nvr_camera_manager_update(NvrCameraManager *manager, size_t index,
+                              const NvrCameraConfig *config) {
+    if(!manager||!config||index>=manager->count)return -1;
+    NvrCameraConfig *items=malloc(manager->count*sizeof(*items));if(!items)return -1;
+    for(size_t i=0;i<manager->count;i++)items[i]=i==index?*config:manager->cameras[i].config;
+    int result=rebuild(manager,items,manager->count);free(items);return result;
+}

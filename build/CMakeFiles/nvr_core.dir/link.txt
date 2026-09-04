@@ -1,2 +1,0 @@
-/usr/bin/ar qc libnvr_core.a CMakeFiles/nvr_core.dir/src/camera.c.o CMakeFiles/nvr_core.dir/src/camera_manager.c.o CMakeFiles/nvr_core.dir/src/config.c.o CMakeFiles/nvr_core.dir/src/decoder.c.o CMakeFiles/nvr_core.dir/src/frame_queue.c.o CMakeFiles/nvr_core.dir/src/layout.c.o CMakeFiles/nvr_core.dir/src/logger.c.o CMakeFiles/nvr_core.dir/src/renderer.c.o CMakeFiles/nvr_core.dir/src/rtsp.c.o CMakeFiles/nvr_core.dir/src/ui.c.o
-/usr/bin/ranlib libnvr_core.a

@@ -8,7 +8,11 @@ void nvr_log(NvrLogLevel level, const char *format, ...) {
     time_t now = time(NULL);
     struct tm tm_now;
     char timestamp[32];
+#ifdef _WIN32
+    localtime_s(&tm_now, &now);
+#else
     localtime_r(&now, &tm_now);
+#endif
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &tm_now);
     fprintf(stderr, "%s %-5s ", timestamp, names[level]);
     va_list args;
