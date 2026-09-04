@@ -1,9 +1,11 @@
 [Desktop Entry]
+Version=1.0
 Type=Application
 Name=NVR Monitor
 Comment=Monitor de câmeras NVR
-Exec=nvr-monitor
+Exec=/usr/local/bin/nvr-monitor
+Path=/usr/local/share/nvr-monitor
 Icon=nvr-monitor
 Terminal=false
-Categories=AudioVideo;Video;Security;
+Categories=AudioVideo;Video;
 StartupNotify=true
