@@ -1,5 +1,9 @@
 #include "nvr/app.h"
 #include "nvr/paths.h"
+#ifdef NVR_USE_SDL_MAIN
+/* SDL2main supplies WinMain and calls the SDL_main entry point. */
+#include <SDL_main.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 

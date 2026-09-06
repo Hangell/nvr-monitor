@@ -14,6 +14,9 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Threads REQUIRED)
 find_package(SDL2 REQUIRED)
 find_package(SQLite3 REQUIRED)
+if(NOT TARGET SQLite3::SQLite3)
+    add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
+endif()
 find_package(FFmpeg REQUIRED COMPONENTS avformat avcodec avutil swscale)
 
 add_library(nvr_core
@@ -31,7 +34,7 @@ add_library(nvr_core
     src/ui.c
 )
 target_include_directories(nvr_core PUBLIC include)
-target_link_libraries(nvr_core PUBLIC SDL2::SDL2 SQLite::SQLite3 Threads::Threads FFmpeg::FFmpeg)
+target_link_libraries(nvr_core PUBLIC SDL2::SDL2 SQLite3::SQLite3 Threads::Threads FFmpeg::FFmpeg)
 target_compile_definitions(nvr_core PRIVATE
     NVR_SOURCE_ICON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/nvr-monitor-window.bmp"
     NVR_INSTALLED_ICON_PATH="${CMAKE_INSTALL_FULL_DATADIR}/nvr-monitor/assets/icons/nvr-monitor-window.bmp")
@@ -48,12 +51,14 @@ if(WIN32)
     target_include_directories(nvr-monitor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/windows")
     if(TARGET SDL2::SDL2main)
         target_link_libraries(nvr-monitor PRIVATE SDL2::SDL2main)
+        target_compile_definitions(nvr-monitor PRIVATE NVR_USE_SDL_MAIN)
         set_target_properties(nvr-monitor PROPERTIES WIN32_EXECUTABLE TRUE)
     endif()
 endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_test(NAME app_help COMMAND nvr-monitor --help)
     add_executable(test_layout tests/test_layout.c src/layout.c)
     target_include_directories(test_layout PRIVATE include)
     add_test(NAME layout COMMAND test_layout)
@@ -71,7 +76,7 @@ if(BUILD_TESTING)
 
     add_executable(test_database tests/test_database.c src/database.c src/config.c src/logger.c)
     target_include_directories(test_database PRIVATE include)
-    target_link_libraries(test_database PRIVATE SQLite::SQLite3 Threads::Threads)
+    target_link_libraries(test_database PRIVATE SQLite3::SQLite3 Threads::Threads)
     add_test(NAME database COMMAND test_database)
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
