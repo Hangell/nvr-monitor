@@ -83,6 +83,7 @@ static void draw_camera(NvrRenderer *view, NvrCamera *camera, size_t i, NvrRect 
         SDL_RenderCopy(view->renderer, view->textures[i], NULL, &destination);
     }
     NvrCameraState state = nvr_camera_state(camera);
+    camera->displayed_state = state;
     if (state == NVR_CAMERA_ONLINE) SDL_SetRenderDrawColor(view->renderer, 40, 190, 90, 255);
     else if (state == NVR_CAMERA_CONNECTING || state == NVR_CAMERA_RECONNECTING) SDL_SetRenderDrawColor(view->renderer, 240, 170, 30, 255);
     else SDL_SetRenderDrawColor(view->renderer, 210, 50, 50, 255);

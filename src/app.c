@@ -55,14 +55,45 @@ int nvr_app_run(const char *config_path) {
     nvr_log(NVR_LOG_INFO, "%zu câmera(s) iniciada(s). Duplo clique maximiza; Esc volta; Q encerra.", manager.count);
     NvrUi ui;
     nvr_ui_init(&ui, &database);
-    int running = 1;
+    int running = 1, dirty = 1;
+    Uint32 next_frame = SDL_GetTicks();
     while (running) {
+        Uint32 now = SDL_GetTicks();
+        int timeout = SDL_TICKS_PASSED(now, next_frame) ? 0 : (int)(next_frame - now);
         SDL_Event event;
-        while (SDL_PollEvent(&event)) running = nvr_ui_handle_event(&ui, &event, &renderer, &manager);
-        nvr_renderer_draw(&renderer, &manager);
-        nvr_ui_draw(&ui, &renderer, &manager);
-        SDL_RenderPresent(renderer.renderer);
-        SDL_Delay(1);
+        if (SDL_WaitEventTimeout(&event, timeout)) {
+            do {
+                running = nvr_ui_handle_event(&ui, &event, &renderer, &manager);
+                if (!running) break;
+                if (event.type != SDL_MOUSEMOTION) dirty = 1;
+            } while (SDL_PollEvent(&event));
+        }
+        if (!running) break;
+        Uint32 flags = SDL_GetWindowFlags(renderer.window);
+        int visible = !(flags & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN));
+        for (size_t i = 0; i < manager.count; ++i) {
+            NvrCamera *camera = &manager.cameras[i];
+            int displayed = visible && (renderer.fullscreen_camera < 0 ||
+                                       (size_t)renderer.fullscreen_camera == i);
+            atomic_store(&camera->display_requested, displayed);
+            if (displayed) {
+                pthread_mutex_lock(&camera->frames.mutex);
+                if (camera->frames.count) dirty = 1;
+                pthread_mutex_unlock(&camera->frames.mutex);
+                if (camera->displayed_state != nvr_camera_state(camera)) dirty = 1;
+            }
+        }
+        now = SDL_GetTicks();
+        if (!SDL_TICKS_PASSED(now, next_frame)) continue;
+        /* Explicit cap also works when VSync is absent or the monitor is 144 Hz.
+           Losing keyboard focus does not hide a camera on another monitor. */
+        if (visible && dirty) {
+            nvr_renderer_draw(&renderer, &manager);
+            nvr_ui_draw(&ui, &renderer, &manager);
+            SDL_RenderPresent(renderer.renderer);
+            dirty = 0;
+        }
+        next_frame = SDL_GetTicks() + (visible ? 40 : 250);
     }
     nvr_camera_manager_stop(&manager);
     nvr_renderer_destroy(&renderer);

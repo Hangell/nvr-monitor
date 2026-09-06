@@ -28,9 +28,11 @@ static int packet_queue_push(PacketNode **head,PacketNode **tail,const AVPacket 
 
 static void decode_packet(NvrCamera *camera,NvrDecoder *decoder,const AVPacket *packet){
     if(nvr_decoder_send(decoder,packet)<0)return;
-    for(;;){uint8_t *pixels;int width,height,pitch;int result=nvr_decoder_receive_rgba(decoder,&pixels,&width,&height,&pitch);
+    for(;;){uint8_t *pixels;int width,height,pitch;
+        int display=atomic_load(&camera->display_requested);
+        int result=nvr_decoder_receive_rgba(decoder,&pixels,&width,&height,&pitch,display);
         if(result<0)break;
-        nvr_frame_queue_push(&camera->frames,pixels,width,height,pitch);}
+        if(display)nvr_frame_queue_push(&camera->frames,pixels,width,height,pitch);}
 }
 
 static int sleep_interruptible(NvrCamera *camera, unsigned seconds) {
@@ -114,6 +116,7 @@ int nvr_camera_init(NvrCamera *camera, const NvrCameraConfig *config) {
     memset(camera, 0, sizeof(*camera)); camera->config = *config;
     atomic_init(&camera->stop_requested, 0); atomic_init(&camera->state, NVR_CAMERA_STOPPED);
     atomic_init(&camera->main_stream_requested, 0);
+    atomic_init(&camera->display_requested, 1);
     return nvr_frame_queue_init(&camera->frames, 2);
 }
 int nvr_camera_start(NvrCamera *camera) {

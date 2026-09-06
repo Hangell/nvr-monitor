@@ -190,6 +190,20 @@ Para câmeras Yoosee, ative o NVR no aplicativo do celular e selecione UDP. Use
 `ffplay` serve apenas para diagnosticar uma URL; o NVR usa diretamente as
 bibliotecas FFmpeg.
 
+## Consumo de recursos e múltiplos monitores
+
+A apresentação é limitada a no máximo 25 quadros por segundo e a janela só é
+redesenhada quando há imagens novas ou alterações na interface. Minimizada ou
+oculta, ela não renderiza nem converte imagens para BGRA. Na visualização de uma
+única câmera, a conversão das demais também fica suspensa. As conexões RTSP e a
+decodificação continuam para preservar as referências do vídeo e permitir a
+retomada sem reconexão; portanto o consumo de CPU não chega necessariamente a zero.
+
+Perder o foco não suspende o vídeo: a janela pode continuar visível em outro
+monitor. Isso também vale para monitores conectados por adaptadores USB, como
+Wavlink. O limite de atualização independe do VSync e da frequência do monitor.
+A decodificação atual é feita por software, sem aceleração de vídeo por hardware.
+
 ## Segurança dos perfis
 
 O SQLite recebe permissão `0600` no Linux, mas não oferece criptografia. Usuário

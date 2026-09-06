@@ -20,6 +20,8 @@ typedef struct {
     atomic_int stop_requested;
     atomic_int state;
     atomic_int main_stream_requested;
+    atomic_int display_requested;
+    NvrCameraState displayed_state; /* Main thread only. */
     NvrFrameQueue frames;
     int thread_started;
 } NvrCamera;

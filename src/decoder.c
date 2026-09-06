@@ -25,9 +25,11 @@ int nvr_decoder_send(NvrDecoder *d, const AVPacket *packet) {
     return d && d->codec ? avcodec_send_packet(d->codec, packet) : -1;
 }
 
-int nvr_decoder_receive_rgba(NvrDecoder *d, uint8_t **pixels, int *width, int *height, int *pitch) {
+int nvr_decoder_receive_rgba(NvrDecoder *d, uint8_t **pixels, int *width, int *height, int *pitch, int convert) {
     int result = avcodec_receive_frame(d->codec, d->decoded);
     if (result < 0) return result;
+    /* Drain reference frames even when no display needs a BGRA copy. */
+    if (!convert) return 0;
     if (d->width != d->decoded->width || d->height != d->decoded->height) {
         sws_freeContext(d->sws); d->sws = NULL;
         av_freep(&d->rgba_buffer);

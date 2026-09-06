@@ -21,7 +21,7 @@ typedef struct {
 int nvr_decoder_open(NvrDecoder *decoder, const AVCodecParameters *parameters);
 int nvr_decoder_send(NvrDecoder *decoder, const AVPacket *packet);
 int nvr_decoder_receive_rgba(NvrDecoder *decoder, uint8_t **pixels,
-                             int *width, int *height, int *pitch);
+                             int *width, int *height, int *pitch, int convert);
 void nvr_decoder_close(NvrDecoder *decoder);
 
 #endif

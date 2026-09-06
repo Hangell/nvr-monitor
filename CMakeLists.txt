@@ -74,6 +74,16 @@ if(BUILD_TESTING)
     target_link_libraries(test_database PRIVATE SQLite::SQLite3 Threads::Threads)
     add_test(NAME database COMMAND test_database)
 
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(test_app_idle tests/test_app_idle.c src/app.c)
+        target_link_libraries(test_app_idle PRIVATE nvr_core)
+        target_link_options(test_app_idle PRIVATE
+            -Wl,--wrap=SDL_RenderPresent -Wl,--wrap=SDL_GetWindowFlags)
+        target_compile_options(test_app_idle PRIVATE -UNDEBUG)
+        add_test(NAME app_idle COMMAND test_app_idle)
+        set_tests_properties(app_idle PROPERTIES TIMEOUT 10)
+    endif()
+
     foreach(test_target IN ITEMS test_layout test_rtsp_uri test_config test_database)
         if(MSVC)
             target_compile_options(${test_target} PRIVATE /UNDEBUG)
