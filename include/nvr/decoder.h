@@ -12,6 +12,10 @@ typedef struct {
     AVCodecContext *codec;
     AVFrame *decoded;
     AVFrame *rgba;
+    AVFrame *software;
+    AVCodecParameters *parameters;
+    int hw_format;
+    int wait_keyframe;
     SwsContext *sws;
     uint8_t *rgba_buffer;
     int width;

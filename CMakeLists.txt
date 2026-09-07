@@ -80,6 +80,12 @@ if(BUILD_TESTING)
     add_test(NAME database COMMAND test_database)
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(test_decoder tests/test_decoder.c)
+        target_link_libraries(test_decoder PRIVATE nvr_core)
+        target_link_options(test_decoder PRIVATE -Wl,--wrap=av_hwdevice_ctx_create)
+        target_compile_options(test_decoder PRIVATE -UNDEBUG)
+        add_test(NAME decoder COMMAND test_decoder)
+
         add_executable(test_app_idle tests/test_app_idle.c src/app.c)
         target_link_libraries(test_app_idle PRIVATE nvr_core)
         target_link_options(test_app_idle PRIVATE

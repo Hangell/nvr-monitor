@@ -342,7 +342,17 @@ retomada sem reconexão; portanto o consumo de CPU não chega necessariamente a 
 Perder o foco não suspende o vídeo: a janela pode continuar visível em outro
 monitor. Isso também vale para monitores conectados por adaptadores USB, como
 Wavlink. O limite de atualização independe do VSync e da frequência do monitor.
-A decodificação atual é feita por software, sem aceleração de vídeo por hardware.
+A decodificação tenta usar automaticamente a GPU compatível com o codec: VA-API
+no Linux, D3D11VA/DXVA2 no Windows, VideoToolbox no macOS e CUDA para NVIDIA.
+É necessário que o FFmpeg e os drivers instalados ofereçam suporte ao backend.
+A GPU aguarda o primeiro quadro-chave ao conectar para iniciar com referências válidas.
+Sem GPU compatível, o programa usa CPU automaticamente. Se a aceleração falhar
+durante o stream, passa para CPU até a próxima conexão; a imagem pode aguardar
+o próximo quadro-chave. Os logs informam a seleção e o fallback.
+
+A conversão para BGRA ainda usa CPU; quadros de câmeras ocultas não são
+transferidos da GPU para conversão. A aceleração pode reduzir a carga de CPU,
+mas a temperatura depende do hardware e da quantidade de streams.
 
 ## Segurança dos perfis
 
