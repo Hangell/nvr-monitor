@@ -15,6 +15,7 @@ typedef struct {
 } NvrRenderer;
 
 #define NVR_MENU_HEIGHT 44
+#define NVR_CAMERA_FOOTER_HEIGHT 40
 
 int nvr_renderer_init(NvrRenderer *renderer, const char *title, int width, int height,
                       size_t camera_count);

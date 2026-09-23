@@ -104,7 +104,11 @@ void nvr_renderer_draw(NvrRenderer *view, NvrCameraManager *manager) {
             if (slots < manager->count) slots = manager->count;
             nvr_layout_grid_slots(manager->count, slots, width, height - NVR_MENU_HEIGHT,
                                   areas, manager->count);
-            for (size_t i = 0; i < manager->count; ++i) areas[i].y += NVR_MENU_HEIGHT;
+            for (size_t i = 0; i < manager->count; ++i) {
+                areas[i].y += NVR_MENU_HEIGHT;
+                areas[i].height -= NVR_CAMERA_FOOTER_HEIGHT;
+                if (areas[i].height < 1) areas[i].height = 1;
+            }
             for (size_t i = 0; i < manager->count; ++i) draw_camera(view, &manager->cameras[i], i, areas[i]);
             free(areas);
         }

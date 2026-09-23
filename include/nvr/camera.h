@@ -21,6 +21,7 @@ typedef struct {
     atomic_int state;
     atomic_int main_stream_requested;
     atomic_int display_requested;
+    int grid_main_stream; /* Main thread only: thumbnail quality selection. */
     NvrCameraState displayed_state; /* Main thread only. */
     NvrFrameQueue frames;
     int thread_started;
