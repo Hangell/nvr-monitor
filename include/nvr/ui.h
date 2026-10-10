@@ -12,7 +12,8 @@ typedef struct {
     int active_field;
     int editing_index;
     int confirm_delete;
-    char fields[8][256];
+    int first_visible_field;
+    char fields[9][256];
     char status[256];
     NvrDatabase *database;
 } NvrUi;

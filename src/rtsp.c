@@ -26,7 +26,7 @@ int nvr_rtsp_percent_encode(const char *input, char *output, size_t size) {
 int nvr_rtsp_build_uri(const NvrCameraConfig *config, int main_stream,
                        const char *password, char *uri, size_t size) {
     char user[NVR_USER_MAX * 3], pass[NVR_ENV_MAX * 3];
-    if (!config || !uri || !size) return -1;
+    if (!config || !config->host[0] || !uri || !size) return -1;
     if (nvr_rtsp_percent_encode(config->username, user, sizeof(user)) != 0 ||
         nvr_rtsp_percent_encode(password ? password : "", pass, sizeof(pass)) != 0) return -1;
     const char *path = main_stream ? config->main_path : config->grid_path;
@@ -43,19 +43,39 @@ int nvr_rtsp_build_uri(const NvrCameraConfig *config, int main_stream,
 #ifndef NVR_RTSP_URI_ONLY
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
+#include <libavutil/error.h>
+
+static int interrupted(void *opaque) {
+    const atomic_int *cancel = opaque;
+    return cancel && atomic_load(cancel);
+}
 
 int nvr_rtsp_open(NvrRtspSession *session, const NvrCameraConfig *config,
                   int main_stream, const char *password) {
+    return nvr_rtsp_open_interruptible(session, config, main_stream, password, NULL);
+}
+
+int nvr_rtsp_open_interruptible(NvrRtspSession *session, const NvrCameraConfig *config,
+                                int main_stream, const char *password,
+                                const atomic_int *cancel) {
     char uri[1024];
     AVDictionary *options = NULL;
     if (!session || nvr_rtsp_build_uri(config, main_stream, password, uri, sizeof(uri))) return -1;
     memset(session, 0, sizeof(*session));
     session->video_stream = -1;
+    session->format = avformat_alloc_context();
+    if (!session->format) return AVERROR(ENOMEM);
+    session->format->interrupt_callback.callback = interrupted;
+    session->format->interrupt_callback.opaque = (void *)cancel;
     av_dict_set(&options, "rtsp_transport", nvr_transport_name(config->transport), 0);
     av_dict_set(&options, "timeout", "5000000", 0);
     av_dict_set(&options, "rw_timeout", "5000000", 0);
     av_dict_set(&options, "fflags", "nobuffer", 0);
     av_dict_set(&options, "flags", "low_delay", 0);
+    av_dict_set(&options, "allowed_media_types", "video", 0);
+    /* Keep a small UDP reordering window without the default half-second wait. */
+    av_dict_set(&options, "max_delay", "100000", 0);
+    av_dict_set(&options, "reorder_queue_size", "64", 0);
     int result = avformat_open_input(&session->format, uri, NULL, &options);
     av_dict_free(&options);
     if (result < 0) return result;
@@ -74,6 +94,10 @@ void nvr_rtsp_close(NvrRtspSession *session) {
 #else
 int nvr_rtsp_open(NvrRtspSession *s, const NvrCameraConfig *c, int m, const char *p) {
     (void)s; (void)c; (void)m; (void)p; return -1;
+}
+int nvr_rtsp_open_interruptible(NvrRtspSession *s, const NvrCameraConfig *c, int m,
+                                const char *p, const atomic_int *cancel) {
+    (void)cancel; return nvr_rtsp_open(s, c, m, p);
 }
 void nvr_rtsp_close(NvrRtspSession *s) { (void)s; }
 #endif

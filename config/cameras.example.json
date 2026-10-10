@@ -3,6 +3,7 @@
     {
       "name": "Entrada",
       "host": "192.168.1.100",
+      "mac_address": "",
       "port": 554,
       "username": "admin",
       "password_env": "NVR_CAMERA_ENTRADA_PASSWORD",

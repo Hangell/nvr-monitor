@@ -2,9 +2,11 @@
 #define NVR_CONFIG_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 #define NVR_NAME_MAX 64
 #define NVR_HOST_MAX 256
+#define NVR_MAC_MAX 18
 #define NVR_USER_MAX 128
 #define NVR_PATH_MAX 256
 #define NVR_ENV_MAX 128
@@ -18,6 +20,7 @@ typedef enum {
 typedef struct {
     char name[NVR_NAME_MAX];
     char host[NVR_HOST_MAX];
+    char mac_address[NVR_MAC_MAX];
     unsigned short port;
     char username[NVR_USER_MAX];
     char password[NVR_PASSWORD_MAX];
@@ -36,5 +39,6 @@ int nvr_config_load(const char *path, NvrConfig *config, char *error, size_t err
 int nvr_config_save(const char *path, const NvrConfig *config, char *error, size_t error_size);
 void nvr_config_free(NvrConfig *config);
 const char *nvr_transport_name(NvrTransport transport);
+bool nvr_mac_normalize(const char *input, char *output, size_t output_size);
 
 #endif

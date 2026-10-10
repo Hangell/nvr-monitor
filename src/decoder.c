@@ -18,6 +18,8 @@ static int open_context(NvrDecoder *d, const AVCodec *codec, const AVCodecHWConf
     d->codec = avcodec_alloc_context3(codec);
     if (!d->codec) return AVERROR(ENOMEM);
     int result = avcodec_parameters_to_context(d->codec, d->parameters);
+    /* Frame threading buffers future frames; slice threading does not. */
+    d->codec->thread_type = FF_THREAD_SLICE;
     if (result >= 0 && hw) {
         result = av_hwdevice_ctx_create(&d->codec->hw_device_ctx, hw->device_type, NULL, NULL, 0);
         d->hw_format = hw->pix_fmt;

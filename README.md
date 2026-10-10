@@ -24,12 +24,16 @@ na grade, alterar os campos e clicar em SALVAR.**
 - Duplo clique no vídeo para ampliar; `Esc` para voltar.
 - Cadastro, edição e exclusão de conexões pela interface.
 - Reconexão automática quando uma câmera perde a conexão.
+- Cadastro por IP/host ou MAC, com descoberta do IP atual na rede local.
 - Perfis persistidos em SQLite e integração com o menu de aplicativos.
 - Pacotes Linux, instalador Windows e pacote Windows com as DLLs necessárias.
 
-O vídeo tem atraso controlado de aproximadamente dois segundos. Cada câmera
-possui uma thread de conexão e decodificação; a interface usa a thread principal.
-Não são necessários processos `ffplay` para exibir as câmeras.
+Os pacotes de vídeo são decodificados assim que chegam, sem a espera artificial
+de dois segundos. A interface apresenta o quadro mais recente disponível. O
+atraso restante depende da câmera, dos quadros-chave, da rede e da capacidade
+de decodificação; o programa não garante atraso zero. Cada câmera possui uma
+thread de conexão e decodificação; a interface usa a thread principal. Não são
+necessários processos `ffplay` para exibir as câmeras.
 
 ## Linux: instalação pelo Git
 
@@ -272,6 +276,33 @@ O workflow não publica uma GitHub Release automaticamente.
 
 Clique em **+ ADD CAMERA**, preencha os dados da conexão e clique em **SALVAR**.
 Use **LAYOUT** para escolher a quantidade de posições na grade.
+
+### Câmeras com IP dinâmico: usar MAC
+
+Para câmeras que mudam de IP, preencha **MAC** com o endereço da câmera na
+conexão em uso (Wi-Fi ou cabo), por exemplo `02:11:22:33:44:55`. O IP/host é
+opcional nesse caso; um IP conhecido ajuda a localizar a câmera mais rápido.
+Sem MAC, o monitor continua conectando diretamente ao IP/host cadastrado.
+
+Com MAC preenchido, o monitor procura o IPv4 correspondente ao iniciar e em
+cada reconexão. O MAC identifica o dispositivo e o vídeo continua sendo recebido
+por RTSP no IP encontrado. Se o MAC não for localizado, a câmera fica desconectada
+e o monitor tenta novamente, sem conectar ao IP antigo sem confirmar sua identidade.
+Os perfis existentes são preservados na atualização do banco.
+
+A descoberta por MAC exige a mesma rede local, sem isolamento entre clientes.
+Ela procura em interfaces físicas Ethernet/Wi-Fi, por até oito segundos e com
+limite de 1.024 endereços no conjunto das redes conectadas. Em redes maiores,
+informe também o IP atual para verificar o MAC nesse endereço ou use reserva DHCP.
+Use IP/host para câmeras acessadas por VPN, outra sub-rede ou encaminhamento de
+portas. Não é necessário executar o monitor como administrador.
+
+No modem/roteador, configure **reserva DHCP** usando o MAC da câmera. Ela pode
+continuar aparecendo como cliente DHCP/dinâmico, pois ainda recebe o endereço do
+servidor; a reserva faz esse servidor entregar o mesmo IP. Confira se a reserva
+está ativa e se o MAC é o da interface utilizada: Wi-Fi e Ethernet podem ter
+endereços diferentes. O monitor não altera configurações do modem.
+Veja o [exemplo de reserva DHCP da TP-Link](https://www.tp-link.com/in/support/faq/182/).
 
 ### Editar uma conexão salva
 

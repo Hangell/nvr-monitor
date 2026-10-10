@@ -10,6 +10,45 @@ typedef struct { const char *text; size_t pos, length; } Json;
 static void set_error(char *error, size_t size, const char *message) {
     if (error && size) snprintf(error, size, "%s", message);
 }
+
+static int hex_value(unsigned char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+bool nvr_mac_normalize(const char *input, char *output, size_t output_size) {
+    unsigned char bytes[6];
+    bool valid = input && output && output_size >= NVR_MAC_MAX;
+    size_t length = input ? strlen(input) : 0;
+    if (valid && length != 12 && length != 17) valid = false;
+    char separator = length == 17 ? input[2] : '\0';
+    if (valid && length == 17 && separator != ':' && separator != '-') valid = false;
+    for (size_t i = 0; valid && i < 6; ++i) {
+        size_t offset = i * (length == 17 ? 3 : 2);
+        int high = hex_value((unsigned char)input[offset]);
+        int low = hex_value((unsigned char)input[offset + 1]);
+        if (high < 0 || low < 0 || (length == 17 && i < 5 && input[offset + 2] != separator)) {
+            valid = false;
+            break;
+        }
+        bytes[i] = (unsigned char)((high << 4) | low);
+    }
+    if (valid) {
+        unsigned char combined = 0;
+        for (size_t i = 0; i < 6; ++i) combined |= bytes[i];
+        if (!combined || (bytes[0] & 1)) valid = false;
+    }
+    if (!valid) {
+        if (output && output_size) output[0] = '\0';
+        return false;
+    }
+    snprintf(output, output_size, "%02x:%02x:%02x:%02x:%02x:%02x",
+             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]);
+    return true;
+}
+
 static void skip_ws(Json *j) { while (j->pos < j->length && isspace((unsigned char)j->text[j->pos])) j->pos++; }
 static int take(Json *j, char c) { skip_ws(j); if (j->pos < j->length && j->text[j->pos] == c) { j->pos++; return 1; } return 0; }
 
@@ -60,6 +99,10 @@ static int camera(Json *j, NvrCameraConfig *c) {
             if (string(j, value, sizeof(value))) return -1;
             if (!strcmp(key, "name")) { if (copy_value(c->name, sizeof(c->name), value)) return -1; }
             else if (!strcmp(key, "host")) { if (copy_value(c->host, sizeof(c->host), value)) return -1; }
+            else if (!strcmp(key, "mac_address")) {
+                if (value[0] && !nvr_mac_normalize(value, c->mac_address, sizeof(c->mac_address))) return -1;
+                if (!value[0]) c->mac_address[0] = '\0';
+            }
             else if (!strcmp(key, "username")) { if (copy_value(c->username, sizeof(c->username), value)) return -1; }
             else if (!strcmp(key, "password_env")) { if (copy_value(c->password_env, sizeof(c->password_env), value)) return -1; }
             else if (!strcmp(key, "grid_path")) { if (copy_value(c->grid_path, sizeof(c->grid_path), value)) return -1; }
@@ -73,7 +116,7 @@ static int camera(Json *j, NvrCameraConfig *c) {
         if (take(j, '}')) break;
         if (!take(j, ',')) return -1;
     }
-    return c->name[0] && c->host[0] ? 0 : -1;
+    return c->name[0] && (c->host[0] || c->mac_address[0]) ? 0 : -1;
 }
 
 int nvr_config_load(const char *path, NvrConfig *config, char *error, size_t error_size) {
@@ -123,6 +166,17 @@ static void write_string(FILE *f, const char *s) {
 
 int nvr_config_save(const char *path, const NvrConfig *config, char *error, size_t error_size) {
     if (!path || !config) return -1;
+    if (config->count && !config->cameras) return -1;
+    for (size_t i = 0; i < config->count; ++i) {
+        const NvrCameraConfig *c = &config->cameras[i];
+        char mac_address[NVR_MAC_MAX];
+        if (!c->name[0] || (!c->host[0] && !c->mac_address[0])) {
+            set_error(error, error_size, "informe o nome e o IP/host ou MAC da câmera"); return -1;
+        }
+        if (c->mac_address[0] && !nvr_mac_normalize(c->mac_address, mac_address, sizeof(mac_address))) {
+            set_error(error, error_size, "endereço MAC inválido"); return -1;
+        }
+    }
     FILE *f = fopen(path, "wb");
     if (!f) { set_error(error, error_size, "não foi possível salvar o arquivo"); return -1; }
     fputs("{\n  \"cameras\": [", f);
@@ -131,6 +185,11 @@ int nvr_config_save(const char *path, const NvrConfig *config, char *error, size
         fputs(i ? ",\n    {\n" : "\n    {\n", f);
 #define FIELD(name, value, comma) fputs("      \"" name "\": ", f); write_string(f, value); fputs(comma "\n", f)
         FIELD("name", c->name, ","); FIELD("host", c->host, ",");
+        if (c->mac_address[0]) {
+            char mac_address[NVR_MAC_MAX];
+            nvr_mac_normalize(c->mac_address, mac_address, sizeof(mac_address));
+            FIELD("mac_address", mac_address, ",");
+        }
         fprintf(f, "      \"port\": %u,\n", c->port);
         FIELD("username", c->username, ","); FIELD("password_env", c->password_env, ",");
         FIELD("grid_path", c->grid_path, ","); FIELD("main_path", c->main_path, ",");

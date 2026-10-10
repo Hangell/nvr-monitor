@@ -2,6 +2,7 @@
 #define NVR_RTSP_H
 
 #include <stddef.h>
+#include <stdatomic.h>
 #include "nvr/config.h"
 
 typedef struct AVFormatContext AVFormatContext;
@@ -16,6 +17,9 @@ int nvr_rtsp_build_uri(const NvrCameraConfig *config, int main_stream,
                        const char *password, char *uri, size_t uri_size);
 int nvr_rtsp_open(NvrRtspSession *session, const NvrCameraConfig *config,
                   int main_stream, const char *password);
+int nvr_rtsp_open_interruptible(NvrRtspSession *session, const NvrCameraConfig *config,
+                                int main_stream, const char *password,
+                                const atomic_int *cancel);
 void nvr_rtsp_close(NvrRtspSession *session);
 
 #endif
