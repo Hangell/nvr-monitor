@@ -28,6 +28,7 @@ add_library(nvr_core
     src/frame_queue.c
     src/layout.c
     src/logger.c
+    src/network.c
     src/paths.c
     src/renderer.c
     src/rtsp.c
@@ -35,6 +36,9 @@ add_library(nvr_core
 )
 target_include_directories(nvr_core PUBLIC include)
 target_link_libraries(nvr_core PUBLIC SDL2::SDL2 SQLite3::SQLite3 Threads::Threads FFmpeg::FFmpeg)
+if(WIN32)
+    target_link_libraries(nvr_core PUBLIC ws2_32 iphlpapi)
+endif()
 target_compile_definitions(nvr_core PRIVATE
     NVR_SOURCE_ICON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/nvr-monitor-window.bmp"
     NVR_INSTALLED_ICON_PATH="${CMAKE_INSTALL_FULL_DATADIR}/nvr-monitor/assets/icons/nvr-monitor-window.bmp")
@@ -79,6 +83,24 @@ if(BUILD_TESTING)
     target_link_libraries(test_database PRIVATE SQLite3::SQLite3 Threads::Threads)
     add_test(NAME database COMMAND test_database)
 
+    add_executable(test_network tests/test_network.c src/network.c src/config.c src/logger.c)
+    target_compile_definitions(test_network PRIVATE NVR_NETWORK_TESTING)
+    target_include_directories(test_network PRIVATE include)
+    target_link_libraries(test_network PRIVATE Threads::Threads)
+    if(WIN32)
+        target_link_libraries(test_network PRIVATE ws2_32 iphlpapi)
+    endif()
+    add_test(NAME network COMMAND test_network)
+
+    add_executable(test_camera tests/test_camera.c src/camera.c src/frame_queue.c)
+    target_include_directories(test_camera PRIVATE include)
+    target_link_libraries(test_camera PRIVATE Threads::Threads FFmpeg::FFmpeg)
+    add_test(NAME camera COMMAND test_camera)
+
+    add_executable(test_ui tests/test_ui.c)
+    target_link_libraries(test_ui PRIVATE nvr_core)
+    add_test(NAME ui COMMAND test_ui)
+
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(test_decoder tests/test_decoder.c)
         target_link_libraries(test_decoder PRIVATE nvr_core)
@@ -95,7 +117,7 @@ if(BUILD_TESTING)
         set_tests_properties(app_idle PROPERTIES TIMEOUT 10)
     endif()
 
-    foreach(test_target IN ITEMS test_layout test_rtsp_uri test_config test_database)
+    foreach(test_target IN ITEMS test_layout test_rtsp_uri test_config test_database test_network test_camera test_ui)
         if(MSVC)
             target_compile_options(${test_target} PRIVATE /UNDEBUG)
         else()

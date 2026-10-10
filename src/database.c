@@ -17,6 +17,43 @@ static int execute(NvrDatabase *database, const char *sql, char *error, size_t s
     return result == SQLITE_OK ? 0 : -1;
 }
 
+static int migrate_schema(NvrDatabase *database, char *error, size_t size) {
+    if (execute(database, "BEGIN IMMEDIATE;", error, size)) return -1;
+    sqlite3_stmt *statement = NULL;
+    int has_mac = 0;
+    int result = sqlite3_prepare_v2(database->handle, "PRAGMA table_info(cameras)", -1, &statement, NULL);
+    if (result == SQLITE_OK) {
+        while ((result = sqlite3_step(statement)) == SQLITE_ROW) {
+            const unsigned char *column = sqlite3_column_text(statement, 1);
+            if (column && !strcmp((const char *)column, "mac_address")) has_mac = 1;
+        }
+    }
+    sqlite3_finalize(statement);
+    if (result != SQLITE_DONE) {
+        set_error(error, size, sqlite3_errmsg(database->handle));
+        execute(database, "ROLLBACK;", NULL, 0);
+        return -1;
+    }
+    if ((!has_mac && execute(database, "ALTER TABLE cameras ADD COLUMN mac_address TEXT NOT NULL DEFAULT '';", error, size)) ||
+        execute(database, "PRAGMA user_version=2;", error, size) ||
+        execute(database, "COMMIT;", error, size)) {
+        execute(database, "ROLLBACK;", NULL, 0);
+        return -1;
+    }
+    return 0;
+}
+
+static int validate_camera(const NvrCameraConfig *camera, char *error, size_t size) {
+    if (!camera || !camera->name[0] || (!camera->host[0] && !camera->mac_address[0])) {
+        set_error(error, size, "informe o nome e o IP/host ou MAC da câmera"); return -1;
+    }
+    char mac_address[NVR_MAC_MAX];
+    if (camera->mac_address[0] && !nvr_mac_normalize(camera->mac_address, mac_address, sizeof(mac_address))) {
+        set_error(error, size, "endereço MAC inválido"); return -1;
+    }
+    return 0;
+}
+
 int nvr_database_open(NvrDatabase *database, const char *path, char *error, size_t size) {
     if (!database || !path) return -1;
     memset(database, 0, sizeof(*database));
@@ -32,27 +69,30 @@ int nvr_database_open(NvrDatabase *database, const char *path, char *error, size
         "PRAGMA secure_delete=ON;"
         "CREATE TABLE IF NOT EXISTS cameras ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL,"
+        "name TEXT NOT NULL, host TEXT NOT NULL, mac_address TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL,"
         "username TEXT NOT NULL DEFAULT '', password TEXT NOT NULL DEFAULT '', password_env TEXT NOT NULL DEFAULT '',"
         "grid_path TEXT NOT NULL DEFAULT '/onvif2',"
         "main_path TEXT NOT NULL DEFAULT '/onvif1',"
         "transport TEXT NOT NULL CHECK(transport IN ('udp','tcp')),"
         "position INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1"
-        ");PRAGMA user_version=1;";
-    if (execute(database, schema, error, size)) { nvr_database_close(database); return -1; }
+        ");";
+    if (execute(database, schema, error, size) || migrate_schema(database, error, size)) {
+        nvr_database_close(database); return -1;
+    }
     return 0;
 }
 
 int nvr_database_load(NvrDatabase *database, NvrConfig *config, char *error, size_t size) {
     if (!database || !database->handle || !config) return -1;
     *config = (NvrConfig){0};
-    const char *sql = "SELECT name,host,port,username,password,password_env,grid_path,main_path,transport "
+    const char *sql = "SELECT name,host,port,username,password,password_env,grid_path,main_path,transport,mac_address "
                       "FROM cameras WHERE enabled=1 ORDER BY position,id LIMIT 9";
     sqlite3_stmt *statement = NULL;
     if (sqlite3_prepare_v2(database->handle,sql,-1,&statement,NULL)!=SQLITE_OK) {
         set_error(error,size,sqlite3_errmsg(database->handle)); return -1;
     }
     int result;
+    const char *failure_message = NULL;
     while ((result=sqlite3_step(statement))==SQLITE_ROW) {
         NvrCameraConfig item = {0};
 #define COLUMN_TEXT(field,column) do { const unsigned char *v=sqlite3_column_text(statement,column); \
@@ -61,32 +101,40 @@ int nvr_database_load(NvrDatabase *database, NvrConfig *config, char *error, siz
         COLUMN_TEXT(username,3); COLUMN_TEXT(password,4); COLUMN_TEXT(password_env,5);COLUMN_TEXT(grid_path,6); COLUMN_TEXT(main_path,7);
         const unsigned char *transport=sqlite3_column_text(statement,8);
         item.transport=transport&&!strcmp((const char*)transport,"udp")?NVR_TRANSPORT_UDP:NVR_TRANSPORT_TCP;
+        COLUMN_TEXT(mac_address,9);
+        if (item.mac_address[0] && !nvr_mac_normalize(item.mac_address, item.mac_address, sizeof(item.mac_address))) {
+            result = SQLITE_MISMATCH; failure_message = "endereço MAC inválido no perfil da câmera"; goto done;
+        }
 #undef COLUMN_TEXT
         NvrCameraConfig *items=realloc(config->cameras,(config->count+1)*sizeof(*items));
         if(!items){result=SQLITE_NOMEM;goto done;} config->cameras=items; config->cameras[config->count++]=item;
     }
 done:
     sqlite3_finalize(statement);
-    if(result!=SQLITE_DONE){nvr_config_free(config);set_error(error,size,sqlite3_errmsg(database->handle));return -1;}
+    if(result!=SQLITE_DONE){nvr_config_free(config);set_error(error,size,failure_message?failure_message:sqlite3_errmsg(database->handle));return -1;}
     return 0;
 }
 
 static int bind_camera(sqlite3_stmt *statement, const NvrCameraConfig *camera, int position) {
     int result=SQLITE_OK;
+    char mac_address[NVR_MAC_MAX] = "";
+    if (camera->mac_address[0] && !nvr_mac_normalize(camera->mac_address, mac_address, sizeof(mac_address))) return SQLITE_CONSTRAINT;
 #define BIND_TEXT(index,value) do { if(result==SQLITE_OK) result=sqlite3_bind_text(statement,index,value,-1,SQLITE_TRANSIENT); } while(0)
     BIND_TEXT(1,camera->name); BIND_TEXT(2,camera->host);
     if(result==SQLITE_OK) result=sqlite3_bind_int(statement,3,camera->port);
     BIND_TEXT(4,camera->username); BIND_TEXT(5,camera->password);BIND_TEXT(6,camera->password_env);
     BIND_TEXT(7,camera->grid_path); BIND_TEXT(8,camera->main_path);
     BIND_TEXT(9,nvr_transport_name(camera->transport));
-    if(result==SQLITE_OK && position>=0) result=sqlite3_bind_int(statement,10,position);
+    BIND_TEXT(10,mac_address);
+    if(result==SQLITE_OK && position>=0) result=sqlite3_bind_int(statement,11,position);
 #undef BIND_TEXT
     return result;
 }
 
 int nvr_database_insert_camera(NvrDatabase *database, const NvrCameraConfig *camera, char *error, size_t size) {
-    const char *sql="INSERT INTO cameras(name,host,port,username,password,password_env,grid_path,main_path,transport,position) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,(SELECT count(*) FROM cameras))";
+    if (!database || !database->handle || validate_camera(camera,error,size)) return -1;
+    const char *sql="INSERT INTO cameras(name,host,port,username,password,password_env,grid_path,main_path,transport,mac_address,position) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,(SELECT count(*) FROM cameras))";
     sqlite3_stmt *statement=NULL;
     if(sqlite3_prepare_v2(database->handle,sql,-1,&statement,NULL)!=SQLITE_OK){set_error(error,size,sqlite3_errmsg(database->handle));return -1;}
     int result=bind_camera(statement,camera,-1);
@@ -97,7 +145,8 @@ int nvr_database_insert_camera(NvrDatabase *database, const NvrCameraConfig *cam
 
 int nvr_database_update_camera(NvrDatabase *database, size_t index,
                                const NvrCameraConfig *camera, char *error, size_t size) {
-    const char *sql="UPDATE cameras SET name=?,host=?,port=?,username=?,password=?,password_env=?,grid_path=?,main_path=?,transport=? "
+    if (!database || !database->handle || validate_camera(camera,error,size)) return -1;
+    const char *sql="UPDATE cameras SET name=?,host=?,port=?,username=?,password=?,password_env=?,grid_path=?,main_path=?,transport=?,mac_address=? "
                     "WHERE id=(SELECT id FROM cameras WHERE enabled=1 ORDER BY position,id LIMIT 1 OFFSET ?)";
     sqlite3_stmt *statement=NULL;
     if(sqlite3_prepare_v2(database->handle,sql,-1,&statement,NULL)!=SQLITE_OK){set_error(error,size,sqlite3_errmsg(database->handle));return -1;}
@@ -119,8 +168,12 @@ int nvr_database_delete_camera(NvrDatabase *database, size_t index, char *error,
 }
 
 int nvr_database_replace_all(NvrDatabase *database, const NvrConfig *config, char *error, size_t size) {
+    if (!database || !database->handle || !config || (config->count && !config->cameras)) return -1;
+    for (size_t i = 0; i < config->count; ++i) {
+        if (validate_camera(&config->cameras[i],error,size)) return -1;
+    }
     if(execute(database,"BEGIN IMMEDIATE; DELETE FROM cameras;",error,size)) return -1;
-    const char *sql="INSERT INTO cameras(name,host,port,username,password,password_env,grid_path,main_path,transport,position) VALUES(?,?,?,?,?,?,?,?,?,?)";
+    const char *sql="INSERT INTO cameras(name,host,port,username,password,password_env,grid_path,main_path,transport,mac_address,position) VALUES(?,?,?,?,?,?,?,?,?,?,?)";
     sqlite3_stmt *statement=NULL; int failed=0;
     if(sqlite3_prepare_v2(database->handle,sql,-1,&statement,NULL)!=SQLITE_OK) failed=1;
     for(size_t i=0;!failed&&i<config->count;i++) {

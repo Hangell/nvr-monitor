@@ -1,6 +1,7 @@
 #include "nvr/decoder.h"
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
 
@@ -41,6 +42,26 @@ int main(void) {
             ++expected_attempts;
     }
     assert(device_attempts == expected_attempts);
+    /* A generated 16x16 red H.264 keyframe must display without a future packet
+       or flushing the decoder (SPS/PPS/IDR, no B-frames). */
+    static const uint8_t h264[] = {
+        0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0xc0, 0x0a, 0xdd, 0xec, 0x04, 0x40,
+        0x00, 0x00, 0x03, 0x00, 0x40, 0x00, 0x00, 0x03, 0x00, 0xa3, 0xc4, 0x89,
+        0xe0, 0x00, 0x00, 0x00, 0x01, 0x68, 0xce, 0x0f, 0xc8, 0x00, 0x00, 0x01,
+        0x65, 0x88, 0x84, 0x3a, 0x11, 0x8a, 0x00, 0x02, 0x18, 0xf1, 0xc0, 0x00,
+        0x40, 0xf6, 0x38, 0x00, 0x08, 0x79, 0x60
+    };
+    AVPacket *keyframe = av_packet_alloc();
+    assert(keyframe && av_new_packet(keyframe, sizeof(h264)) == 0);
+    memcpy(keyframe->data, h264, sizeof(h264));
+    keyframe->flags = AV_PKT_FLAG_KEY;
+    assert(nvr_decoder_send(&decoder, keyframe) == 0);
+    uint8_t *pixels = NULL;
+    int width = 0, height = 0, pitch = 0;
+    assert(nvr_decoder_receive_rgba(&decoder, &pixels, &width, &height, &pitch, 1) == 0);
+    assert(width == 16 && height == 16 && pitch == 64);
+    assert(pixels[0] < 10 && pixels[1] < 10 && pixels[2] > 200 && pixels[3] == 255);
+    av_packet_free(&keyframe);
     nvr_decoder_close(&decoder);
 
     parameters->codec_id = AV_CODEC_ID_RAWVIDEO;

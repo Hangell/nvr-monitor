@@ -1,6 +1,7 @@
 #include "nvr/camera.h"
 #include "nvr/decoder.h"
 #include "nvr/logger.h"
+#include "nvr/network.h"
 #include "nvr/rtsp.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -9,22 +10,9 @@
 #include <libavcodec/packet.h>
 #include <libavformat/avformat.h>
 #include <libavutil/error.h>
-#include <libavutil/time.h>
 #ifdef _WIN32
 #include <windows.h>
 #endif
-
-#define NVR_STREAM_DELAY_US 2000000LL
-
-typedef struct PacketNode {AVPacket *packet;int64_t received_us;struct PacketNode *next;} PacketNode;
-
-static void packet_queue_clear(PacketNode **head){while(*head){PacketNode *node=*head;*head=node->next;av_packet_free(&node->packet);free(node);}}
-
-static int packet_queue_push(PacketNode **head,PacketNode **tail,const AVPacket *packet){
-    PacketNode *node=calloc(1,sizeof(*node));if(!node)return -1;node->packet=av_packet_clone(packet);
-    if(!node->packet){free(node);return -1;}node->received_us=av_gettime_relative();
-    if(*tail)(*tail)->next=node;else *head=node;*tail=node;return 0;
-}
 
 static void decode_packet(NvrCamera *camera,NvrDecoder *decoder,const AVPacket *packet){
     if(nvr_decoder_send(decoder,packet)<0)return;
@@ -60,9 +48,29 @@ static void *camera_worker(void *data) {
             continue;
         }
         atomic_store(&camera->state, backoff == 1 ? NVR_CAMERA_CONNECTING : NVR_CAMERA_RECONNECTING);
+        /* Keep the saved identity unchanged; DHCP may change its endpoint. */
+        NvrCameraConfig endpoint = camera->config;
+        if (endpoint.mac_address[0]) {
+            char error[256];
+            if (nvr_network_resolve_mac(endpoint.mac_address, camera->config.host,
+                                        &camera->stop_requested, endpoint.host,
+                                        sizeof(endpoint.host), error, sizeof(error))) {
+                if (atomic_load(&camera->stop_requested)) break;
+                nvr_log(NVR_LOG_WARN, "Câmera '%s': %s; nova tentativa em %u s",
+                        camera->config.name, error, backoff);
+                atomic_store(&camera->state, NVR_CAMERA_DISCONNECTED);
+                if (sleep_interruptible(camera, backoff)) break;
+                if (backoff < 30) backoff = backoff * 2 > 30 ? 30 : backoff * 2;
+                continue;
+            }
+            nvr_log(NVR_LOG_INFO, "Câmera '%s': MAC %s localizado em %s",
+                    camera->config.name, endpoint.mac_address, endpoint.host);
+        }
+        if (atomic_load(&camera->stop_requested)) break;
         NvrRtspSession session;
         int selected_stream = atomic_load(&camera->main_stream_requested);
-        int result = nvr_rtsp_open(&session, &camera->config, selected_stream, password);
+        int result = nvr_rtsp_open_interruptible(&session, &endpoint, selected_stream,
+                                                password, &camera->stop_requested);
         if (result < 0) {
             char reason[AV_ERROR_MAX_STRING_SIZE] = {0};
             av_strerror(result, reason, sizeof(reason));
@@ -86,21 +94,15 @@ static void *camera_worker(void *data) {
         }
         atomic_store(&camera->state, NVR_CAMERA_ONLINE); backoff = 1;
         AVPacket *packet = av_packet_alloc();
-        PacketNode *delay_head=NULL,*delay_tail=NULL;
         while (packet && !atomic_load(&camera->stop_requested) &&
                selected_stream == atomic_load(&camera->main_stream_requested) &&
                av_read_frame(session.format, packet) >= 0) {
             if (packet->stream_index == session.video_stream) {
-                packet_queue_push(&delay_head,&delay_tail,packet);
-                int64_t now=av_gettime_relative();
-                while(delay_head&&now-delay_head->received_us>=NVR_STREAM_DELAY_US){
-                    PacketNode *ready=delay_head;delay_head=ready->next;if(!delay_head)delay_tail=NULL;
-                    decode_packet(camera,&decoder,ready->packet);av_packet_free(&ready->packet);free(ready);
-                }
+                decode_packet(camera, &decoder, packet);
             }
             av_packet_unref(packet);
         }
-        packet_queue_clear(&delay_head);av_packet_free(&packet); nvr_decoder_close(&decoder); nvr_rtsp_close(&session);
+        av_packet_free(&packet); nvr_decoder_close(&decoder); nvr_rtsp_close(&session);
         if (!atomic_load(&camera->stop_requested)) {
             atomic_store(&camera->state, NVR_CAMERA_RECONNECTING);
             nvr_log(NVR_LOG_WARN, "Câmera '%s': stream interrompido; reconectando", camera->config.name);
