@@ -46,6 +46,7 @@ int nvr_renderer_init(NvrRenderer *view, const char *title, int width, int heigh
     view->window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                     width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     if (view->window) {
+        SDL_SetWindowMinimumSize(view->window, 420, 360);
         SDL_Surface *icon=load_application_icon();
         if(icon){Uint32 transparent=SDL_MapRGB(icon->format,255,0,255);SDL_SetColorKey(icon,SDL_TRUE,transparent);SDL_SetWindowIcon(view->window,icon);SDL_FreeSurface(icon);}
     }
@@ -109,13 +110,14 @@ void nvr_renderer_camera_areas(NvrRenderer *view, size_t count, NvrRect areas[9]
     size_t visible = 0;
     for (size_t i = 0; i < count && i < 9; ++i)
         if (!view->detached[i]) ++visible;
+    int menu_height = view->hide_menu ? 0 : NVR_MENU_HEIGHT;
     NvrRect grid[9] = {0};
-    nvr_layout_grid_slots(visible, view->layout_slots, width, height - NVR_MENU_HEIGHT, grid, 9);
+    nvr_layout_grid_slots(visible, view->layout_slots, width, height - menu_height, grid, 9);
     size_t slot = 0;
     for (size_t i = 0; i < count && i < 9; ++i) {
         if (view->detached[i]) continue;
         areas[i] = grid[slot++];
-        areas[i].y += NVR_MENU_HEIGHT;
+        areas[i].y += menu_height;
         if (view->fullscreen_camera == (int)i) areas[i] = (NvrRect){0, 0, width, height};
         else if (view->fullscreen_camera >= 0) areas[i] = (NvrRect){0};
     }

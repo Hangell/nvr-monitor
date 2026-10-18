@@ -28,6 +28,7 @@ add_library(nvr_core
     src/frame_queue.c
     src/layout.c
     src/logger.c
+    src/media.c
     src/network.c
     src/paths.c
     src/renderer.c
@@ -92,10 +93,14 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME network COMMAND test_network)
 
-    add_executable(test_camera tests/test_camera.c src/camera.c src/frame_queue.c)
+    add_executable(test_camera tests/test_camera.c src/camera.c src/frame_queue.c src/media.c)
     target_include_directories(test_camera PRIVATE include)
     target_link_libraries(test_camera PRIVATE Threads::Threads FFmpeg::FFmpeg)
     add_test(NAME camera COMMAND test_camera)
+
+    add_executable(test_media tests/test_media.c)
+    target_link_libraries(test_media PRIVATE nvr_core)
+    add_test(NAME media COMMAND test_media)
 
     add_executable(test_ui tests/test_ui.c)
     target_link_libraries(test_ui PRIVATE nvr_core)
@@ -117,7 +122,7 @@ if(BUILD_TESTING)
         set_tests_properties(app_idle PROPERTIES TIMEOUT 10)
     endif()
 
-    foreach(test_target IN ITEMS test_layout test_rtsp_uri test_config test_database test_network test_camera test_ui)
+    foreach(test_target IN ITEMS test_layout test_rtsp_uri test_config test_database test_network test_camera test_ui test_media)
         if(MSVC)
             target_compile_options(${test_target} PRIVATE /UNDEBUG)
         else()

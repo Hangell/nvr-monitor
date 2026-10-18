@@ -13,6 +13,7 @@ typedef struct NvrRenderer {
     size_t texture_count;
     int fullscreen_camera;
     size_t layout_slots;
+    int hide_menu;
     struct NvrRenderer *detached[9];
 } NvrRenderer;
 

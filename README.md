@@ -333,6 +333,42 @@ Para câmeras Yoosee, ative o NVR no aplicativo do celular e selecione UDP. Use
 `ffplay` serve apenas para diagnosticar uma URL; o NVR usa diretamente as
 bibliotecas FFmpeg.
 
+### Configurações da interface
+
+Abra **CONFIGURAÇÕES** no menu superior (em janelas estreitas, **MENU**) ou pressione
+`F10` na janela principal. Escolha Português ou Inglês e use **Ocultar menu superior**
+para liberar mais espaço para os vídeos. Com o menu oculto, o botão discreto **MENU**
+no canto superior direito continua acessível, inclusive com uma câmera ampliada.
+
+Informe os caminhos absolutos das pastas de capturas e gravações; as pastas devem
+existir e permitir escrita. É possível colar com `Ctrl+V`, trocar de campo com `Tab`
+e salvar com `Enter`. Campos vazios significam destino ainda não definido.
+**Salvar** aplica e persiste as opções; **Cancelar** ou `Esc` descarta as alterações.
+As preferências ficam no mesmo banco dos perfis e são restauradas ao abrir o programa.
+
+### Captura de imagem e gravação
+
+Defina as pastas em **CONFIGURAÇÕES** (`F10`). Cada visor, inclusive em janela
+independente, possui **REC** e **PRINT** no canto inferior esquerdo:
+
+- **PRINT** salva o próximo quadro recebido em PNG, na resolução do stream atual,
+  sem os controles do painel. Os avisos de captura e gravação ficam centralizados na parte inferior e desaparecem após
+  3 segundos; o botão **STOP** permanece vermelho enquanto a gravação estiver ativa.
+- **REC** aguarda um quadro-chave e grava o vídeo em MKV, sem áudio e sem
+  recodificação. O botão fica vermelho e muda para **STOP** enquanto a operação está ativa.
+- **STOP** finaliza o arquivo. Em uma conexão travada, a finalização pode aguardar
+  o timeout de leitura. A gravação continua com a janela minimizada ou outra câmera ampliada.
+- Trocar HD/FHD, perder a conexão, editar os perfis ou encerrar o aplicativo finaliza
+  a gravação atual. Ela não é reiniciada automaticamente; clique em **REC** novamente.
+- Os nomes contêm a câmera, data e hora, com um identificador para evitar sobrescritas.
+  Não há limite automático de duração nem limpeza automática de arquivos antigos.
+
+As pastas devem estar configuradas e a câmera deve estar online para iniciar as operações.
+Arquivos incompletos podem permanecer se houver erro de escrita; nesse caso, o visor
+exibe erro em vez de confirmar que o vídeo foi salvo.
+
+O controle de movimento PTZ para câmeras Yoosee permanece pendente.
+
 ## Dados e conexões salvas
 
 | Sistema | Banco padrão |

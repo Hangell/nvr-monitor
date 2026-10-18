@@ -202,6 +202,127 @@ int main(void) {
     assert(nvr_ui_handle_event(&ui, &child_key, &view, &manager) == 1);
     assert(view.detached[0] && !view.detached[1]);
 
+    /* Settings persist independently of camera profiles and reclaim menu space. */
+    nvr_renderer_attach(&view, 0);
+    click(&ui, &view, &manager, 350, 20);
+    assert(ui.panel == NVR_UI_SETTINGS);
+    capture(&ui, &view, &manager, "settings-pt");
+    key(&ui, &view, &manager, SDLK_SPACE);
+    key(&ui, &view, &manager, SDLK_TAB);
+    key(&ui, &view, &manager, SDLK_SPACE);
+    key(&ui, &view, &manager, SDLK_TAB);
+    type(&ui, &view, &manager, path); /* A file is not an output directory. */
+    key(&ui, &view, &manager, SDLK_RETURN);
+    assert(ui.panel == NVR_UI_SETTINGS && strstr(ui.status, "PASTA INVALIDA"));
+    assert(!ui.settings.english && !view.hide_menu);
+    while (ui.draft_settings.screenshot_directory[0]) key(&ui, &view, &manager, SDLK_BACKSPACE);
+    char *directory = SDL_GetBasePath();
+    assert(directory);
+    type(&ui, &view, &manager, directory);
+    key(&ui, &view, &manager, SDLK_TAB);
+    type(&ui, &view, &manager, directory);
+    key(&ui, &view, &manager, SDLK_RETURN);
+    assert(ui.panel == NVR_UI_NONE && ui.settings.english && view.hide_menu);
+    nvr_renderer_camera_areas(&view, manager.count, areas);
+    assert(areas[0].y == 0 && areas[0].height == 720);
+    NvrUi restored;
+    nvr_ui_init(&restored, &database);
+    assert(restored.settings.english && restored.settings.hide_menu);
+    assert(!strcmp(restored.settings.screenshot_directory, directory));
+    assert(!strcmp(restored.settings.recording_directory, directory));
+    SDL_free(directory);
+    check_database(&database, 1, "192.168.1.30", "");
+    click(&ui, &view, &manager, 1240, 20); /* Floating button remains reachable. */
+    assert(ui.panel == NVR_UI_SETTINGS);
+    capture(&ui, &view, &manager, "settings-en");
+    key(&ui, &view, &manager, SDLK_SPACE);
+    key(&ui, &view, &manager, SDLK_ESCAPE);
+    assert(ui.settings.english && view.hide_menu); /* Cancel discards the draft. */
+    key(&ui, &view, &manager, SDLK_F10);
+    SDL_SetWindowSize(view.window, 420, 360);
+    capture(&ui, &view, &manager, "settings-small");
+    key(&ui, &view, &manager, SDLK_TAB);
+    key(&ui, &view, &manager, SDLK_SPACE);
+    key(&ui, &view, &manager, SDLK_RETURN);
+    assert(!view.hide_menu);
+    nvr_renderer_camera_areas(&view, manager.count, areas);
+    assert(areas[0].y == NVR_MENU_HEIGHT);
+    click(&ui, &view, &manager, 380, 20);
+    assert(ui.panel == NVR_UI_SETTINGS);
+    key(&ui, &view, &manager, SDLK_ESCAPE);
+
+    /* Each visor owns its media controls, including detached windows. */
+    nvr_renderer_camera_areas(&view, manager.count, areas);
+    int media_y = areas[0].y+areas[0].height-50;
+    int print_x = areas[0].x+80;
+    int record_x = areas[0].x+16;
+    click(&ui, &view, &manager, print_x, media_y);
+    assert(strstr(ui.media_message[0], "SEM VIDEO"));
+    atomic_store(&manager.cameras[0].state, NVR_CAMERA_ONLINE);
+    char screenshot_directory[512];
+    strcpy(screenshot_directory, ui.settings.screenshot_directory);
+    ui.settings.screenshot_directory[0] = '\0';
+    click(&ui, &view, &manager, print_x, media_y);
+    assert(strstr(ui.media_message[0], "DEFINA A PASTA"));
+    assert(atomic_load(&manager.cameras[0].media.screenshot_state) == NVR_MEDIA_IDLE);
+    strcpy(ui.settings.screenshot_directory, screenshot_directory);
+    click(&ui, &view, &manager, print_x, media_y);
+    assert(atomic_load(&manager.cameras[0].media.screenshot_state) == NVR_MEDIA_WAITING);
+    nvr_media_frame(&manager.cameras[0].media, pixels, 2, 2, 8);
+    assert(atomic_load(&manager.cameras[0].media.screenshot_state) == NVR_MEDIA_SAVED);
+    remove(manager.cameras[0].media.screenshot_path);
+    click(&ui, &view, &manager, record_x, media_y);
+    assert(atomic_load(&manager.cameras[0].media.recording_state) == NVR_MEDIA_WAITING);
+    click(&ui, &view, &manager, record_x, media_y);
+    assert(atomic_load(&manager.cameras[0].media.recording_state) == NVR_MEDIA_STOPPING);
+    nvr_media_end_stream(&manager.cameras[0].media);
+    assert(atomic_load(&manager.cameras[0].media.recording_state) == NVR_MEDIA_CANCELLED);
+    assert(nvr_renderer_detach(&view, 1, second.name) == 0);
+    atomic_store(&manager.cameras[1].state, NVR_CAMERA_ONLINE);
+    SDL_Event child_click = {.type = SDL_MOUSEBUTTONDOWN};
+    child_click.button.windowID = SDL_GetWindowID(view.detached[1]->window);
+    child_click.button.button = SDL_BUTTON_LEFT;
+    child_click.button.clicks = 1;
+    child_click.button.x = 80;
+    child_click.button.y = 490;
+    assert(nvr_ui_handle_event(&ui, &child_click, &view, &manager) == 1);
+    assert(atomic_load(&manager.cameras[1].media.screenshot_state) == NVR_MEDIA_WAITING);
+    assert(atomic_load(&manager.cameras[0].media.screenshot_state) == NVR_MEDIA_SAVED);
+    nvr_media_frame(&manager.cameras[1].media, pixels, 2, 2, 8);
+    assert(atomic_load(&manager.cameras[1].media.screenshot_state) == NVR_MEDIA_SAVED);
+    remove(manager.cameras[1].media.screenshot_path);
+    child_click.button.x = 16;
+    assert(nvr_ui_handle_event(&ui, &child_click, &view, &manager) == 1);
+    assert(atomic_load(&manager.cameras[1].media.recording_state) == NVR_MEDIA_WAITING);
+    capture(&ui, &view, &manager, "media-controls");
+    assert(nvr_ui_handle_event(&ui, &child_click, &view, &manager) == 1);
+    assert(atomic_load(&manager.cameras[1].media.recording_state) == NVR_MEDIA_STOPPING);
+    nvr_media_end_stream(&manager.cameras[1].media);
+
+    /* Notices expire without stopping the recording, including tick wraparound. */
+    memset(ui.media_message, 0, sizeof(ui.media_message));
+    atomic_store(&manager.cameras[0].media.recording_state, NVR_MEDIA_ACTIVE);
+    assert(nvr_ui_update_media(&ui, &manager, 1000));
+    assert(ui.media_record_notice[0] && ui.media_screenshot_notice[0]);
+    capture(&ui, &view, &manager, "centered-notices");
+    assert(!nvr_ui_update_media(&ui, &manager, 3999));
+    assert(nvr_ui_update_media(&ui, &manager, 4000));
+    assert(!ui.media_record_notice[0] && !ui.media_screenshot_notice[0]);
+    assert(atomic_load(&manager.cameras[0].media.recording_state) == NVR_MEDIA_ACTIVE);
+    assert(!nvr_ui_update_media(&ui, &manager, 5000));
+    atomic_store(&manager.cameras[0].media.recording_state, NVR_MEDIA_SAVED);
+    assert(nvr_ui_update_media(&ui, &manager, UINT32_MAX-1000));
+    assert(ui.media_record_notice[0]);
+    assert(!nvr_ui_update_media(&ui, &manager, 1998));
+    assert(nvr_ui_update_media(&ui, &manager, 1999));
+    assert(!ui.media_record_notice[0]);
+    /* Repeated prints refresh their own notice even if they finish between ticks. */
+    click(&ui, &view, &manager, print_x, media_y);
+    nvr_media_frame(&manager.cameras[0].media, pixels, 2, 2, 8);
+    assert(nvr_ui_update_media(&ui, &manager, 6000));
+    assert(ui.media_screenshot_notice[0]);
+    remove(manager.cameras[0].media.screenshot_path);
+
     nvr_camera_manager_destroy(&manager);
     nvr_renderer_destroy(&view);
     nvr_database_close(&database);

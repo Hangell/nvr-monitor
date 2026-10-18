@@ -5,6 +5,7 @@
 #include <stdatomic.h>
 #include "nvr/config.h"
 #include "nvr/frame_queue.h"
+#include "nvr/media.h"
 
 typedef enum {
     NVR_CAMERA_STOPPED,
@@ -24,6 +25,7 @@ typedef struct {
     int grid_main_stream; /* Main thread only: thumbnail quality selection. */
     NvrCameraState displayed_state; /* Main thread only. */
     NvrFrameQueue frames;
+    NvrMedia media;
     int thread_started;
 } NvrCamera;
 

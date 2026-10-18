@@ -69,7 +69,35 @@ static void test_legacy_migration(void) {
     remove(path);
 }
 
+static void test_settings_persistence(void) {
+    char path[NVR_TEST_PATH_MAX], error[256];
+    nvr_test_temp_file(path);
+    NvrDatabase database;
+    NvrSettings settings;
+    assert(nvr_database_open(&database, path, error, sizeof(error)) == 0);
+    assert(nvr_database_load_settings(&database, &settings) == 0);
+    assert(!settings.english && !settings.hide_menu && !settings.screenshot_directory[0]);
+    settings.english = settings.hide_menu = 1;
+    strcpy(settings.screenshot_directory, "/tmp/Camera captures/Joao's folder");
+    strcpy(settings.recording_directory, "/tmp/Camera recordings");
+    assert(nvr_database_save_settings(&database, &settings) == 0);
+    nvr_database_close(&database);
+    assert(nvr_database_open(&database, path, error, sizeof(error)) == 0);
+    NvrSettings loaded;
+    assert(nvr_database_load_settings(&database, &loaded) == 0);
+    assert(loaded.english && loaded.hide_menu);
+    assert(!strcmp(settings.screenshot_directory, loaded.screenshot_directory));
+    assert(!strcmp(settings.recording_directory, loaded.recording_directory));
+    assert(sqlite3_exec(database.handle, "PRAGMA query_only=ON", NULL, NULL, NULL) == SQLITE_OK);
+    settings.english = 0;
+    assert(nvr_database_save_settings(&database, &settings) == -1);
+    assert(nvr_database_load_settings(&database, &loaded) == 0 && loaded.english);
+    nvr_database_close(&database);
+    remove(path);
+}
+
 int main(void){
+    test_settings_persistence();
     test_legacy_migration();
     char path[NVR_TEST_PATH_MAX];
     nvr_test_temp_file(path);

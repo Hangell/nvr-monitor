@@ -67,6 +67,9 @@ int nvr_database_open(NvrDatabase *database, const char *path, char *error, size
     const char *schema =
         "PRAGMA journal_mode=DELETE;"
         "PRAGMA secure_delete=ON;"
+        "CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1),"
+        "english INTEGER NOT NULL, hide_menu INTEGER NOT NULL,"
+        "screenshot_directory TEXT NOT NULL, recording_directory TEXT NOT NULL);"
         "CREATE TABLE IF NOT EXISTS cameras ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "name TEXT NOT NULL, host TEXT NOT NULL, mac_address TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL,"
@@ -190,4 +193,41 @@ void nvr_database_close(NvrDatabase *database) {
     if(!database)return;
     if(database->handle)sqlite3_close(database->handle);
     memset(database,0,sizeof(*database));
+}
+
+int nvr_database_load_settings(NvrDatabase *database, NvrSettings *settings) {
+    if (!database || !database->handle || !settings) return -1;
+    *settings = (NvrSettings){0};
+    sqlite3_stmt *statement = NULL;
+    const char *sql = "SELECT english,hide_menu,screenshot_directory,recording_directory FROM settings WHERE id=1";
+    if (sqlite3_prepare_v2(database->handle, sql, -1, &statement, NULL) != SQLITE_OK) return -1;
+    int result = sqlite3_step(statement);
+    if (result == SQLITE_ROW) {
+        settings->english = sqlite3_column_int(statement, 0) != 0;
+        settings->hide_menu = sqlite3_column_int(statement, 1) != 0;
+        const char *screen = (const char *)sqlite3_column_text(statement, 2);
+        const char *record = (const char *)sqlite3_column_text(statement, 3);
+        if (!screen || !record || strlen(screen) >= sizeof(settings->screenshot_directory) ||
+            strlen(record) >= sizeof(settings->recording_directory)) result = SQLITE_ERROR;
+        else {
+            strcpy(settings->screenshot_directory, screen);
+            strcpy(settings->recording_directory, record);
+        }
+    }
+    sqlite3_finalize(statement);
+    return result == SQLITE_ROW || result == SQLITE_DONE ? 0 : -1;
+}
+
+int nvr_database_save_settings(NvrDatabase *database, const NvrSettings *settings) {
+    if (!database || !database->handle || !settings) return -1;
+    sqlite3_stmt *statement = NULL;
+    const char *sql = "INSERT OR REPLACE INTO settings VALUES(1,?,?,?,?)";
+    if (sqlite3_prepare_v2(database->handle, sql, -1, &statement, NULL) != SQLITE_OK) return -1;
+    int result = sqlite3_bind_int(statement, 1, settings->english != 0);
+    if (result == SQLITE_OK) result = sqlite3_bind_int(statement, 2, settings->hide_menu != 0);
+    if (result == SQLITE_OK) result = sqlite3_bind_text(statement, 3, settings->screenshot_directory, -1, SQLITE_TRANSIENT);
+    if (result == SQLITE_OK) result = sqlite3_bind_text(statement, 4, settings->recording_directory, -1, SQLITE_TRANSIENT);
+    if (result == SQLITE_OK) result = sqlite3_step(statement);
+    sqlite3_finalize(statement);
+    return result == SQLITE_DONE ? 0 : -1;
 }

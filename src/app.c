@@ -55,6 +55,7 @@ int nvr_app_run(const char *config_path) {
     nvr_log(NVR_LOG_INFO, "%zu câmera(s) iniciada(s). Duplo clique maximiza; Esc volta; Q encerra.", manager.count);
     NvrUi ui;
     nvr_ui_init(&ui, &database);
+    renderer.hide_menu = ui.settings.hide_menu;
     int running = 1, dirty = 1;
     Uint32 next_frame = SDL_GetTicks();
     while (running) {
@@ -69,6 +70,7 @@ int nvr_app_run(const char *config_path) {
             } while (SDL_PollEvent(&event));
         }
         if (!running) break;
+        if (nvr_ui_update_media(&ui, &manager, SDL_GetTicks())) dirty = 1;
         Uint32 flags = SDL_GetWindowFlags(renderer.window);
         int visible = !(flags & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN));
         for (size_t i = 0; i < manager.count; ++i) {

@@ -3,6 +3,7 @@
 #include "nvr/logger.h"
 #include "nvr/network.h"
 #include "nvr/rtsp.h"
+#include "test_temp_file.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -148,6 +149,34 @@ int main(void) {
     int64_t start = av_gettime_relative();
     nvr_camera_destroy(&camera);
     assert(av_gettime_relative() - start < 1000000 && atomic_load(&opens) == 0);
+    /* A queued print still converts a frame while the visor is hidden. */
+    char temporary[NVR_TEST_PATH_MAX], directory[NVR_TEST_PATH_MAX];
+    nvr_test_temp_file(temporary);
+    strcpy(directory, temporary);
+    char *slash = strrchr(directory, '/');
+#ifdef _WIN32
+    char *backslash = strrchr(directory, '\\');
+    if (!slash || (backslash && backslash > slash)) slash = backslash;
+#endif
+    assert(slash);
+    *slash = '\0';
+    reset();
+    config.mac_address[0] = '\0';
+    assert(nvr_camera_init(&camera, &config) == 0);
+    atomic_store(&camera.display_requested, 0);
+    assert(nvr_media_request_screenshot(&camera.media, directory) == 0);
+    assert(nvr_camera_start(&camera) == 0);
+    int64_t deadline = av_gettime_relative()+1000000;
+    while (atomic_load(&camera.media.screenshot_state) != NVR_MEDIA_SAVED && av_gettime_relative() < deadline)
+        av_usleep(1000);
+    assert(atomic_load(&camera.media.screenshot_state) == NVR_MEDIA_SAVED);
+    nvr_camera_stop(&camera);
+    NvrVideoFrame hidden_frame = {0};
+    assert(!nvr_frame_queue_take_latest(&camera.frames, &hidden_frame));
+    remove(camera.media.screenshot_path);
+    nvr_camera_destroy(&camera);
+    remove(temporary);
+
     puts("Immediate display, DHCP reconnection, identity and cancellation checks passed");
     return 0;
 }

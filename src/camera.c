@@ -18,8 +18,10 @@ static void decode_packet(NvrCamera *camera,NvrDecoder *decoder,const AVPacket *
     if(nvr_decoder_send(decoder,packet)<0)return;
     for(;;){uint8_t *pixels;int width,height,pitch;
         int display=atomic_load(&camera->display_requested);
-        int result=nvr_decoder_receive_rgba(decoder,&pixels,&width,&height,&pitch,display);
+        int snapshot = atomic_load(&camera->media.screenshot_state) == NVR_MEDIA_WAITING;
+        int result=nvr_decoder_receive_rgba(decoder,&pixels,&width,&height,&pitch,display || snapshot);
         if(result<0)break;
+        if (snapshot) nvr_media_frame(&camera->media, pixels, width, height, pitch);
         if(display)nvr_frame_queue_push(&camera->frames,pixels,width,height,pitch);}
 }
 
@@ -98,10 +100,12 @@ static void *camera_worker(void *data) {
                selected_stream == atomic_load(&camera->main_stream_requested) &&
                av_read_frame(session.format, packet) >= 0) {
             if (packet->stream_index == session.video_stream) {
+                nvr_media_packet(&camera->media, session.format->streams[session.video_stream], packet);
                 decode_packet(camera, &decoder, packet);
             }
             av_packet_unref(packet);
         }
+        nvr_media_end_stream(&camera->media);
         av_packet_free(&packet); nvr_decoder_close(&decoder); nvr_rtsp_close(&session);
         if (!atomic_load(&camera->stop_requested)) {
             atomic_store(&camera->state, NVR_CAMERA_RECONNECTING);
@@ -109,6 +113,7 @@ static void *camera_worker(void *data) {
             sleep_interruptible(camera, backoff);
         }
     }
+    nvr_media_end_stream(&camera->media);
     atomic_store(&camera->state, NVR_CAMERA_STOPPED);
     return NULL;
 }
@@ -119,7 +124,11 @@ int nvr_camera_init(NvrCamera *camera, const NvrCameraConfig *config) {
     atomic_init(&camera->stop_requested, 0); atomic_init(&camera->state, NVR_CAMERA_STOPPED);
     atomic_init(&camera->main_stream_requested, 0);
     atomic_init(&camera->display_requested, 1);
-    return nvr_frame_queue_init(&camera->frames, 2);
+    if (nvr_frame_queue_init(&camera->frames, 2)) return -1;
+    if (nvr_media_init(&camera->media, config->name)) {
+        nvr_frame_queue_destroy(&camera->frames); return -1;
+    }
+    return 0;
 }
 int nvr_camera_start(NvrCamera *camera) {
     if (!camera || camera->thread_started) return -1;
@@ -131,7 +140,7 @@ void nvr_camera_stop(NvrCamera *camera) {
     if (!camera || !camera->thread_started) return;
     atomic_store(&camera->stop_requested, 1); pthread_join(camera->thread, NULL); camera->thread_started = 0;
 }
-void nvr_camera_destroy(NvrCamera *camera) { if (camera) { nvr_camera_stop(camera); nvr_frame_queue_destroy(&camera->frames); } }
+void nvr_camera_destroy(NvrCamera *camera) { if (camera) { nvr_camera_stop(camera); nvr_media_destroy(&camera->media); nvr_frame_queue_destroy(&camera->frames); } }
 NvrCameraState nvr_camera_state(const NvrCamera *camera) { return camera ? atomic_load(&camera->state) : NVR_CAMERA_STOPPED; }
 void nvr_camera_request_main_stream(NvrCamera *camera, int enabled) {
     if (camera) atomic_store(&camera->main_stream_requested, enabled != 0);

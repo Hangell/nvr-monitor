@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 enum { FIELD_NAME, FIELD_HOST, FIELD_MAC, FIELD_PORT, FIELD_USER, FIELD_PASSWORD,
        FIELD_GRID_PATH, FIELD_MAIN_PATH, FIELD_TRANSPORT, FIELD_COUNT };
@@ -14,6 +15,61 @@ static const char *field_labels[FIELD_COUNT] = {
     "NOME", "IP / HOST", "MAC OPCIONAL", "PORTA", "USUARIO", "SENHA",
     "CAMINHO DA GRADE", "CAMINHO PRINCIPAL", "TRANSPORTE"
 };
+
+static const char *translate(const NvrUi *ui, const char *value) {
+    static const char *labels[][2] = {
+        {"CONFIGURACOES", "SETTINGS"},
+        {"NOME", "NAME"}, {"MAC OPCIONAL", "OPTIONAL MAC"}, {"PORTA", "PORT"},
+        {"USUARIO", "USERNAME"}, {"SENHA", "PASSWORD"},
+        {"CAMINHO DA GRADE", "GRID PATH"}, {"CAMINHO PRINCIPAL", "MAIN PATH"},
+        {"TRANSPORTE", "TRANSPORT"}, {"SALVAR", "SAVE"}, {"CANCELAR", "CANCEL"},
+        {"DELETAR", "DELETE"}, {"CONFIRMAR", "CONFIRM"}, {"DESTACAR", "DETACH"},
+        {"VOLTAR", "RETURN"}, {"EDITAR CAMERA", "EDIT CAMERA"},
+        {"ADICIONAR CAMERA", "ADD CAMERA"}, {"AUTOMATICO", "AUTOMATIC"},
+        {"1 TELA", "1 VIEW"}, {"2 TELAS", "2 VIEWS"}, {"4 TELAS", "4 VIEWS"},
+        {"6 TELAS", "6 VIEWS"}, {"8 TELAS", "8 VIEWS"}, {"9 TELAS", "9 VIEWS"},
+        {"IDIOMA", "LANGUAGE"}, {"OCULTAR MENU SUPERIOR", "HIDE TOP MENU"},
+        {"SIM", "YES"}, {"NAO", "NO"}, {"PASTA DE CAPTURAS", "SCREENSHOT FOLDER"},
+        {"PASTA DE GRAVACOES", "RECORDING FOLDER"},
+        {"VAZIO: AINDA NAO DEFINIDO", "EMPTY: NOT SET YET"},
+        {"PRINT: PNG / REC: VIDEO MKV SEM AUDIO", "PRINT: PNG / REC: MKV VIDEO WITHOUT AUDIO"},
+        {"USE PASTAS EXISTENTES. CTRL+V PARA COLAR.", "USE EXISTING FOLDERS. CTRL+V TO PASTE."},
+        {"PASTA INVALIDA OU SEM PERMISSAO DE ESCRITA", "INVALID FOLDER OR NO WRITE PERMISSION"},
+        {"NAO FOI POSSIVEL SALVAR CONFIGURACOES", "COULD NOT SAVE SETTINGS"},
+        {"NAO FOI POSSIVEL CARREGAR CONFIGURACOES", "COULD NOT LOAD SETTINGS"},
+        {"PREENCHA NOME, IP OU MAC, PORTA E TRANSPORTE", "ENTER NAME, IP OR MAC, PORT AND TRANSPORT"},
+        {"CAMPO EXCEDE O TAMANHO PERMITIDO", "FIELD EXCEEDS MAXIMUM LENGTH"},
+        {"MAC INVALIDO. USE AA:BB:CC:DD:EE:FF", "INVALID MAC. USE AA:BB:CC:DD:EE:FF"},
+        {"NAO FOI POSSIVEL ATUALIZAR A CAMERA", "COULD NOT UPDATE CAMERA"},
+        {"PERFIL DA CAMERA ATUALIZADO", "CAMERA PROFILE UPDATED"},
+        {"NAO FOI POSSIVEL ADICIONAR A CAMERA", "COULD NOT ADD CAMERA"},
+        {"CAMERA ADICIONADA AO BANCO DE PERFIS", "CAMERA PROFILE ADDED"},
+        {"CLIQUE EM CONFIRMAR PARA DELETAR", "CLICK CONFIRM TO DELETE"},
+        {"NAO FOI POSSIVEL DELETAR A CAMERA", "COULD NOT DELETE CAMERA"},
+        {"CAMERA DELETADA", "CAMERA DELETED"},
+        {"LAYOUT AUTOMATICO", "AUTOMATIC LAYOUT"},
+        {"NAO FOI POSSIVEL MAXIMIZAR A JANELA", "COULD NOT MAXIMIZE WINDOW"},
+        {"NAO FOI POSSIVEL DESTACAR A CAMERA", "COULD NOT DETACH CAMERA"},
+        {"DEFINA A PASTA EM CONFIGURACOES (F10)", "SET THE FOLDER IN SETTINGS (F10)"},
+        {"CAMERA SEM VIDEO AO VIVO", "CAMERA HAS NO LIVE VIDEO"},
+        {"OPERACAO EM ANDAMENTO", "OPERATION IN PROGRESS"},
+        {"REC: AGUARDANDO QUADRO CHAVE", "REC: WAITING FOR KEYFRAME"},
+        {"REC: GRAVANDO", "REC: RECORDING"},
+        {"REC: FINALIZANDO", "REC: FINALIZING"},
+        {"REC: SALVO", "REC: SAVED"},
+        {"REC: ERRO DE GRAVACAO", "REC: RECORDING ERROR"},
+        {"REC: CANCELADO SEM VIDEO", "REC: CANCELLED WITHOUT VIDEO"},
+        {"PRINT: AGUARDANDO QUADRO", "PRINT: WAITING FOR FRAME"},
+        {"PRINT: SALVO", "PRINT: SAVED"},
+        {"PRINT: ERRO AO SALVAR", "PRINT: SAVE ERROR"},
+        {"CONFIGURACOES SALVAS", "SETTINGS SAVED"}
+    };
+    if (!strcmp(value, "+ ADD CAMERA")) return ui->settings.english ? value : "+ CAMERA";
+    if (!ui->settings.english) return value;
+    for (size_t i = 0; i < sizeof(labels)/sizeof(labels[0]); ++i)
+        if (!strcmp(value, labels[i][0])) return labels[i][1];
+    return value;
+}
 
 /* Fonte bitmap 5x7 para manter a interface sem dependência de SDL_ttf. */
 static const unsigned char *glyph(char input) {
@@ -48,6 +104,8 @@ static const unsigned char *glyph(char input) {
     unsigned char c = (unsigned char)toupper((unsigned char)input);
     if (c >= 'A' && c <= 'Z') return letters[c-'A'];
     if (c >= '0' && c <= '9') return digits[c-'0'];
+    static const unsigned char plus[5] = {0x08,0x08,0x3e,0x08,0x08};
+    if (c == '+') return plus;
     if (c == ' ') return blank;
     if (c == '.') return dot;
     if (c == ':') return colon;
@@ -156,8 +214,12 @@ static void form_button(SDL_Renderer *renderer, SDL_Rect rect, const char *label
                  (SDL_Color){235,240,246,255}, label);
 }
 
-static void form_notes(SDL_Renderer *renderer, CameraForm form) {
-    const char *notes = "PARA IP DINAMICO / DHCP, RECOMENDAMOS MAC. COM MAC, IP / HOST E OPCIONAL. "
+static void form_notes(NvrUi *ui, SDL_Renderer *renderer, CameraForm form) {
+    const char *notes = ui->settings.english ?
+        "FOR DYNAMIC IP / DHCP, WE RECOMMEND MAC. IP / HOST IS OPTIONAL WITH MAC. "
+        "CAMERA AND MONITOR MUST BE ON THE SAME LOCAL NETWORK. "
+        "RESERVE DHCP BY THE CAMERA WI-FI OR ETHERNET MAC IN YOUR ROUTER. "
+        "YOOSEE: ENABLE NVR IN THE APP AND SELECT UDP." : "PARA IP DINAMICO / DHCP, RECOMENDAMOS MAC. COM MAC, IP / HOST E OPCIONAL. "
         "CAMERA E MONITOR DEVEM ESTAR NA MESMA REDE LOCAL. "
         "NO MODEM, RESERVE DHCP PELO MAC DA INTERFACE WI-FI OU CABO DA CAMERA. "
         "YOOSEE: ATIVE NVR NO APP E SELECIONE UDP.";
@@ -181,7 +243,10 @@ static void form_notes(SDL_Renderer *renderer, CameraForm form) {
 }
 
 void nvr_ui_init(NvrUi *ui, NvrDatabase *database) {
-    memset(ui, 0, sizeof(*ui)); ui->active_field = FIELD_NAME;ui->editing_index=-1;ui->database=database;
+    memset(ui, 0, sizeof(*ui));
+    if (nvr_database_load_settings(database, &ui->settings))
+        snprintf(ui->status, sizeof(ui->status), "NAO FOI POSSIVEL CARREGAR CONFIGURACOES");
+    ui->active_field = FIELD_NAME;ui->editing_index=-1;ui->database=database;
 }
 
 static void open_add(NvrUi *ui) {
@@ -207,6 +272,143 @@ static void open_edit(NvrUi *ui,const NvrCameraConfig *camera,size_t index){
 }
 
 static void close_panel(NvrUi *ui) { ui->panel = NVR_UI_NONE; SDL_StopTextInput(); }
+
+typedef struct {
+    SDL_Rect panel, language, menu, screen, record, save, cancel;
+} SettingsForm;
+
+static SettingsForm settings_form(NvrRenderer *view) {
+    int width, height;
+    SDL_GetWindowSize(view->window, &width, &height);
+    int panel_width = width - 24;
+    if (panel_width > 720) panel_width = 720;
+    if (panel_width < 1) panel_width = 1;
+    int panel_height = height - 24;
+    if (panel_height > 348) panel_height = 348;
+    if (panel_height < 1) panel_height = 1;
+    SettingsForm form = {.panel = {(width-panel_width)/2, (height-panel_height)/2, panel_width, panel_height}};
+    int x = form.panel.x+12, y = form.panel.y+36, w = panel_width-24;
+    form.language = (SDL_Rect){x, y, w/2-4, 28};
+    form.menu = (SDL_Rect){x+w/2+4, y, w/2-4, 28};
+    form.screen = (SDL_Rect){x, y+62, w, 28};
+    form.record = (SDL_Rect){x, y+120, w, 28};
+    form.save = (SDL_Rect){x, y+212, w/2-4, 32};
+    form.cancel = (SDL_Rect){x+w/2+4, y+212, w/2-4, 32};
+    return form;
+}
+
+static void open_settings(NvrUi *ui) {
+    ui->draft_settings = ui->settings;
+    ui->settings_field = 0;
+    ui->panel = NVR_UI_SETTINGS;
+    ui->status[0] = '\0';
+    SDL_StartTextInput();
+}
+
+static int valid_output_directory(const char *path) {
+    if (!path[0]) return 1;
+#ifdef _WIN32
+    int absolute = (isalpha((unsigned char)path[0]) && path[1] == ':' &&
+                    (path[2] == '/' || path[2] == '\\')) ||
+                   (path[0] == '\\' && path[1] == '\\');
+#else
+    int absolute = path[0] == '/';
+#endif
+    struct stat info;
+    return absolute && stat(path, &info) == 0 && S_ISDIR(info.st_mode) && access(path, W_OK) == 0;
+}
+
+static void save_settings(NvrUi *ui, NvrRenderer *view) {
+    if (!valid_output_directory(ui->draft_settings.screenshot_directory) ||
+        !valid_output_directory(ui->draft_settings.recording_directory)) {
+        snprintf(ui->status, sizeof(ui->status), "PASTA INVALIDA OU SEM PERMISSAO DE ESCRITA");
+        return;
+    }
+    if (nvr_database_save_settings(ui->database, &ui->draft_settings)) {
+        snprintf(ui->status, sizeof(ui->status), "NAO FOI POSSIVEL SALVAR CONFIGURACOES");
+        return;
+    }
+    ui->settings = ui->draft_settings;
+    view->hide_menu = ui->settings.hide_menu;
+    close_panel(ui);
+    snprintf(ui->status, sizeof(ui->status), "CONFIGURACOES SALVAS");
+}
+
+static void append_settings_text(NvrUi *ui, const char *value) {
+    if (ui->settings_field < 2) return;
+    char *field = ui->settings_field == 2 ? ui->draft_settings.screenshot_directory : ui->draft_settings.recording_directory;
+    size_t have = strlen(field), add = strlen(value);
+    if (have+add < sizeof(ui->draft_settings.screenshot_directory) && !strchr(value, '\n') && !strchr(value, '\r'))
+        memcpy(field+have, value, add+1);
+}
+
+static void settings_event(NvrUi *ui, NvrRenderer *view, const SDL_Event *event) {
+    if (event->type == SDL_KEYDOWN) {
+        SDL_Keycode key = event->key.keysym.sym;
+        if (key == SDLK_ESCAPE) { close_panel(ui); return; }
+        if (key == SDLK_TAB) ui->settings_field = (ui->settings_field + ((event->key.keysym.mod & KMOD_SHIFT) ? 3 : 1)) % 4;
+        else if (key == SDLK_RETURN) save_settings(ui, view);
+        else if (key == SDLK_SPACE && ui->settings_field < 2) {
+            if (ui->settings_field == 0) ui->draft_settings.english = !ui->draft_settings.english;
+            else ui->draft_settings.hide_menu = !ui->draft_settings.hide_menu;
+        } else if (key == SDLK_BACKSPACE && ui->settings_field >= 2) {
+            char *field = ui->settings_field == 2 ? ui->draft_settings.screenshot_directory : ui->draft_settings.recording_directory;
+            size_t length = strlen(field);
+            if (length) {
+                do { --length; } while (length && ((unsigned char)field[length] & 0xc0) == 0x80);
+                field[length] = '\0';
+            }
+        } else if (key == SDLK_v && (event->key.keysym.mod & KMOD_CTRL)) {
+            char *value = SDL_GetClipboardText();
+            if (value) { append_settings_text(ui, value); SDL_free(value); }
+        }
+    } else if (event->type == SDL_TEXTINPUT) append_settings_text(ui, event->text.text);
+    else if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
+        SettingsForm form = settings_form(view);
+        int x = event->button.x, y = event->button.y;
+        if (inside(x, y, form.language)) { ui->settings_field = 0; ui->draft_settings.english = !ui->draft_settings.english; }
+        else if (inside(x, y, form.menu)) { ui->settings_field = 1; ui->draft_settings.hide_menu = !ui->draft_settings.hide_menu; }
+        else if (inside(x, y, form.screen)) ui->settings_field = 2;
+        else if (inside(x, y, form.record)) ui->settings_field = 3;
+        else if (inside(x, y, form.save)) save_settings(ui, view);
+        else if (inside(x, y, form.cancel)) close_panel(ui);
+    }
+}
+
+static void draw_settings(NvrUi *ui, NvrRenderer *view) {
+    SettingsForm form = settings_form(view);
+    SDL_Renderer *renderer = view->renderer;
+    SDL_SetRenderDrawColor(renderer, 24,31,40,250);
+    SDL_RenderFillRect(renderer, &form.panel);
+    SDL_RenderSetClipRect(renderer, &form.panel);
+    text(renderer, form.panel.x+12, form.panel.y+12, 2, (SDL_Color){240,244,248,255}, translate(ui, "CONFIGURACOES"));
+    char label[96];
+    snprintf(label, sizeof(label), "%s: %s", translate(ui, "IDIOMA"), ui->draft_settings.english ? "ENGLISH" : "PORTUGUES");
+    form_button(renderer, form.language, label, ui->settings_field == 0 ? 0 : -1);
+    snprintf(label, sizeof(label), "%s: %s", translate(ui, "OCULTAR MENU SUPERIOR"), translate(ui, ui->draft_settings.hide_menu ? "SIM" : "NAO"));
+    form_button(renderer, form.menu, label, ui->settings_field == 1 ? 0 : -1);
+    SDL_Rect fields[] = {form.screen, form.record};
+    const char *values[] = {ui->draft_settings.screenshot_directory, ui->draft_settings.recording_directory};
+    for (int i = 0; i < 2; ++i) {
+        SDL_Rect field = fields[i];
+        text(renderer, field.x, field.y-16, 1, (SDL_Color){190,205,220,255}, translate(ui, i ? "PASTA DE GRAVACOES" : "PASTA DE CAPTURAS"));
+        SDL_SetRenderDrawColor(renderer, 12,20,30,255);
+        SDL_RenderFillRect(renderer, &field);
+        SDL_SetRenderDrawColor(renderer, ui->settings_field == i+2 ? 80 : 45,110,150,255);
+        SDL_RenderDrawRect(renderer, &field);
+        const char *value = values[i][0] ? values[i] : translate(ui, "VAZIO: AINDA NAO DEFINIDO");
+        size_t visible = field.w > 16 ? (size_t)(field.w-16)/6 : 0;
+        if (ui->settings_field == i+2 && strlen(value) > visible) value += strlen(value)-visible;
+        clipped_text(renderer, (SDL_Rect){field.x+8, field.y+10, field.w-16,8}, 1, (SDL_Color){235,240,246,255}, value);
+    }
+    text(renderer, form.screen.x, form.record.y+42, 1, (SDL_Color){175,190,205,255}, translate(ui, "USE PASTAS EXISTENTES. CTRL+V PARA COLAR."));
+    text(renderer, form.screen.x, form.record.y+58, 1, (SDL_Color){175,190,205,255}, translate(ui, "PRINT: PNG / REC: VIDEO MKV SEM AUDIO"));
+    form_button(renderer, form.save, translate(ui, "SALVAR"), 0);
+    form_button(renderer, form.cancel, translate(ui, "CANCELAR"), -1);
+    clipped_text(renderer, (SDL_Rect){form.save.x, form.save.y+46, form.panel.w-24,16}, 1,
+                 (SDL_Color){240,140,100,255}, translate(ui, ui->status));
+    SDL_RenderSetClipRect(renderer, NULL);
+}
 
 static int save_camera(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
     char *end = NULL; long port = strtol(ui->fields[FIELD_PORT], &end, 10);
@@ -271,6 +473,41 @@ static SDL_Rect detach_button(NvrRect area) {
     return (SDL_Rect){quality.x - 88, quality.y, 82, 24};
 }
 
+static SDL_Rect media_button(NvrRect area, int screenshot) {
+    int width = (area.width-18)/2;
+    if (width > 60) width = 60;
+    if (width < 1) width = 1;
+    return (SDL_Rect){area.x+6+(screenshot ? width+6 : 0), area.y+area.height-58, width, 24};
+}
+
+static int handle_media_click(NvrUi *ui, NvrCamera *camera, size_t index,
+                               NvrRect area, const SDL_Event *event) {
+    int screenshot = inside(event->button.x, event->button.y, media_button(area, 1));
+    if (!screenshot && !inside(event->button.x, event->button.y, media_button(area, 0))) return 0;
+    if (event->button.clicks != 1) return 1;
+    int state = atomic_load(&camera->media.recording_state);
+    const char *message = NULL;
+    if (!screenshot && (state == NVR_MEDIA_WAITING || state == NVR_MEDIA_ACTIVE || state == NVR_MEDIA_STOPPING)) {
+        nvr_media_stop_recording(&camera->media);
+    } else if (nvr_camera_state(camera) != NVR_CAMERA_ONLINE) {
+        message = "CAMERA SEM VIDEO AO VIVO";
+    } else {
+        const char *directory = screenshot ? ui->settings.screenshot_directory : ui->settings.recording_directory;
+        if (!directory[0]) message = "DEFINA A PASTA EM CONFIGURACOES (F10)";
+        else if (!valid_output_directory(directory)) message = "PASTA INVALIDA OU SEM PERMISSAO DE ESCRITA";
+        else {
+            int result = screenshot ? nvr_media_request_screenshot(&camera->media, directory) :
+                                      nvr_media_request_recording(&camera->media, directory);
+            if (result) message = "OPERACAO EM ANDAMENTO";
+            else if (screenshot) ui->media_screenshot_state[index] = NVR_MEDIA_IDLE;
+            else ui->media_record_state[index] = NVR_MEDIA_IDLE;
+        }
+    }
+    snprintf(ui->media_message[index], sizeof(ui->media_message[index]), "%s", message ? message : "");
+    ui->media_message_until[index] = SDL_GetTicks()+3000;
+    return 1;
+}
+
 static void toggle_quality(NvrCamera *camera) {
     camera->grid_main_stream = !atomic_load(&camera->main_stream_requested);
     nvr_camera_request_main_stream(camera, camera->grid_main_stream);
@@ -297,7 +534,7 @@ static void leave_fullscreen(NvrRenderer *view, NvrCameraManager *manager) {
 
 static void select_layout(NvrUi *ui, NvrRenderer *view, size_t slots) {
     view->layout_slots = slots; close_panel(ui);
-    snprintf(ui->status, sizeof(ui->status), slots ? "LAYOUT %zu SELECIONADO" : "LAYOUT AUTOMATICO", slots);
+    snprintf(ui->status, sizeof(ui->status), slots ? (ui->settings.english ? "LAYOUT %zu SELECTED" : "LAYOUT %zu SELECIONADO") : translate(ui, "LAYOUT AUTOMATICO"), slots);
 }
 
 int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
@@ -316,6 +553,12 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
     for (size_t i = 0; i < manager->count && i < 9; ++i) {
         NvrRenderer *child = view->detached[i];
         if (!child || window_id != SDL_GetWindowID(child->window)) continue;
+        if (event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_F10) {
+            open_settings(ui);
+            SDL_RestoreWindow(view->window);
+            SDL_RaiseWindow(view->window);
+            return 1;
+        }
         if ((event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_CLOSE) ||
             (event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_ESCAPE)) {
             nvr_renderer_attach(view, i);
@@ -325,6 +568,7 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
             SDL_GetWindowSize(child->window, &width, &height);
             NvrRect area = {0, 0, width, height};
             int x = event->button.x, y = event->button.y;
+            if (handle_media_click(ui, &manager->cameras[i], i, area, event)) return 1;
             if (inside(x, y, detach_button(area))) nvr_renderer_attach(view, i);
             else if (inside(x, y, quality_button(area))) {
                 if (event->button.clicks == 1) toggle_quality(&manager->cameras[i]);
@@ -340,6 +584,14 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
     if (window_id && window_id != SDL_GetWindowID(view->window)) return 1;
     if (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_CLOSE) return 0;
 
+    if (ui->panel == NVR_UI_SETTINGS) {
+        settings_event(ui, view, event);
+        return 1;
+    }
+    if (event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_F10 && ui->panel == NVR_UI_NONE) {
+        open_settings(ui);
+        return 1;
+    }
     if (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_SIZE_CHANGED &&
         ui->panel == NVR_UI_ADD_CAMERA) show_active_field(ui, view);
     if (event->type == SDL_KEYDOWN) {
@@ -400,13 +652,22 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
             if (inside(x, y, (SDL_Rect){190,48+(int)i*38,190,34})) { select_layout(ui, view, choices[i]); return 1; }
         close_panel(ui); return 1;
     }
-    if (view->fullscreen_camera < 0 && inside(x,y,(SDL_Rect){8,6,170,32})) { open_add(ui); return 1; }
-    if (view->fullscreen_camera < 0 && inside(x,y,(SDL_Rect){188,6,130,32})) { ui->panel=NVR_UI_LAYOUT; return 1; }
+    int window_width, window_height;
+    SDL_GetWindowSize(view->window, &window_width, &window_height);
+    (void)window_height;
+    SDL_Rect settings_button = view->hide_menu || view->fullscreen_camera >= 0 || window_width < 510 ?
+        (SDL_Rect){window_width-60, 6, 52, 28} : (SDL_Rect){328,6,170,32};
+    if (event->button.button == SDL_BUTTON_LEFT && inside(x, y, settings_button)) {
+        open_settings(ui); return 1;
+    }
+    if (!view->hide_menu && view->fullscreen_camera < 0 && inside(x,y,(SDL_Rect){8,6,170,32})) { open_add(ui); return 1; }
+    if (!view->hide_menu && view->fullscreen_camera < 0 && inside(x,y,(SDL_Rect){188,6,130,32})) { ui->panel=NVR_UI_LAYOUT; return 1; }
     if (manager->count && event->button.button == SDL_BUTTON_LEFT) {
         NvrRect areas[9];
         nvr_renderer_camera_areas(view, manager->count, areas);
         for (size_t i = 0; i < manager->count; ++i) {
             if (!inside(x, y, (SDL_Rect){areas[i].x, areas[i].y, areas[i].width, areas[i].height})) continue;
+            if (handle_media_click(ui, &manager->cameras[i], i, areas[i], event)) return 1;
             if (inside(x, y, quality_button(areas[i]))) {
                 if (event->button.clicks == 1) toggle_quality(&manager->cameras[i]);
                 return 1;
@@ -414,7 +675,7 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
             if (inside(x, y, detach_button(areas[i]))) {
                 if (nvr_renderer_detach(view, i, manager->cameras[i].config.name))
                     snprintf(ui->status, sizeof(ui->status), "NAO FOI POSSIVEL DESTACAR A CAMERA");
-                else nvr_camera_request_main_stream(&manager->cameras[i], manager->cameras[i].grid_main_stream);
+                else manager->cameras[i].grid_main_stream = atomic_load(&manager->cameras[i].main_stream_requested);
                 return 1;
             }
             SDL_Rect label = {areas[i].x+5, areas[i].y+5,
@@ -445,12 +706,87 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
 static void draw_menu(NvrUi *ui, NvrRenderer *view) {
     SDL_SetRenderDrawColor(view->renderer, 20,25,32,255);
     SDL_Rect bar={0,0,10000,NVR_MENU_HEIGHT}; SDL_RenderFillRect(view->renderer,&bar);
-    button(view->renderer,(SDL_Rect){8,6,170,32},"+ ADD CAMERA",ui->panel==NVR_UI_ADD_CAMERA);
+    button(view->renderer,(SDL_Rect){8,6,170,32},translate(ui, "+ ADD CAMERA"),ui->panel==NVR_UI_ADD_CAMERA);
     button(view->renderer,(SDL_Rect){188,6,130,32},"LAYOUT",ui->panel==NVR_UI_LAYOUT);
-    if (ui->status[0]) text(view->renderer,338,15,1,(SDL_Color){161,176,194,255},ui->status);
+    int width, height;
+    SDL_GetWindowSize(view->window, &width, &height);
+    (void)height;
+    if (width >= 510) form_button(view->renderer,(SDL_Rect){328,6,170,32},translate(ui, "CONFIGURACOES"),-1);
+    else form_button(view->renderer,(SDL_Rect){width-60,6,52,28},"MENU",-1);
+    if (ui->status[0]) text(view->renderer,510,15,1,(SDL_Color){161,176,194,255},translate(ui, ui->status));
 }
 
-static void draw_camera_labels(NvrRenderer *view, NvrCameraManager *manager) {
+int nvr_ui_update_media(NvrUi *ui, NvrCameraManager *manager, Uint32 now) {
+    int dirty = 0;
+    for (size_t i = 0; i < manager->count && i < 9; ++i) {
+        int record = atomic_load(&manager->cameras[i].media.recording_state);
+        int screenshot = atomic_load(&manager->cameras[i].media.screenshot_state);
+        if (record != ui->media_record_state[i]) {
+            ui->media_record_state[i] = record;
+            ui->media_record_notice[i] = record != NVR_MEDIA_IDLE;
+            ui->media_record_until[i] = now+3000;
+            dirty = 1;
+        }
+        if (screenshot != ui->media_screenshot_state[i]) {
+            ui->media_screenshot_state[i] = screenshot;
+            ui->media_screenshot_notice[i] = screenshot != NVR_MEDIA_IDLE;
+            ui->media_screenshot_until[i] = now+3000;
+            dirty = 1;
+        }
+        if (ui->media_record_notice[i] && SDL_TICKS_PASSED(now, ui->media_record_until[i])) {
+            ui->media_record_notice[i] = 0; dirty = 1;
+        }
+        if (ui->media_screenshot_notice[i] && SDL_TICKS_PASSED(now, ui->media_screenshot_until[i])) {
+            ui->media_screenshot_notice[i] = 0; dirty = 1;
+        }
+        if (ui->media_message[i][0] && SDL_TICKS_PASSED(now, ui->media_message_until[i])) {
+            ui->media_message[i][0] = '\0'; dirty = 1;
+        }
+    }
+    return dirty;
+}
+
+static void draw_media_notice(NvrUi *ui, NvrRenderer *target, NvrRect area,
+                              const char *message, int y) {
+    if (!message[0] || area.width <= 24) return;
+    const char *label = translate(ui, message);
+    int width = (int)strlen(label)*6+16;
+    if (width > area.width-12) width = area.width-12;
+    SDL_Rect background = {area.x+(area.width-width)/2, y, width, 20};
+    SDL_SetRenderDrawColor(target->renderer, 12,18,24,200);
+    SDL_RenderFillRect(target->renderer, &background);
+    clipped_text(target->renderer, (SDL_Rect){background.x+8,y+6,width-16,8},
+                 1, (SDL_Color){240,220,190,255}, label);
+}
+
+static void draw_media_controls(NvrUi *ui, NvrRenderer *target, NvrCamera *camera, size_t index, NvrRect area) {
+    int record = atomic_load(&camera->media.recording_state);
+    int screenshot = atomic_load(&camera->media.screenshot_state);
+    int active = record == NVR_MEDIA_WAITING || record == NVR_MEDIA_ACTIVE || record == NVR_MEDIA_STOPPING;
+    SDL_Rect rec_button = media_button(area, 0);
+    if (active) {
+        SDL_SetRenderDrawColor(target->renderer, 190, 30, 30, 210);
+        SDL_RenderFillRect(target->renderer, &rec_button);
+    }
+    overlay_button(target, rec_button, active ? "STOP" : "REC");
+    overlay_button(target, media_button(area, 1), "PRINT");
+    const char *record_labels[] = {"", "REC: AGUARDANDO QUADRO CHAVE", "REC: GRAVANDO", "REC: FINALIZANDO",
+                                  "REC: SALVO", "REC: ERRO DE GRAVACAO", "REC: CANCELADO SEM VIDEO"};
+    const char *screen_label = screenshot == NVR_MEDIA_SAVED ? "PRINT: SALVO" : screenshot == NVR_MEDIA_ERROR ?
+                              "PRINT: ERRO AO SALVAR" : screenshot == NVR_MEDIA_WAITING || screenshot == NVR_MEDIA_ACTIVE ?
+                              "PRINT: AGUARDANDO QUADRO" : "";
+    const char *record_label = ui->media_record_notice[index] ? record_labels[record] : "";
+    if (!ui->media_screenshot_notice[index]) screen_label = "";
+    const char *message = record_label[0] ? record_label : screen_label;
+    if (ui->media_message[index][0] && !SDL_TICKS_PASSED(SDL_GetTicks(), ui->media_message_until[index]))
+        message = ui->media_message[index];
+    int second_line = area.height >= 120 && record_label[0] && screen_label[0];
+    int y = area.y+area.height-(second_line ? 108 : 84);
+    draw_media_notice(ui, target, area, message, y);
+    if (second_line) draw_media_notice(ui, target, area, screen_label, y+24);
+}
+
+static void draw_camera_labels(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
     NvrRect areas[9];
     nvr_renderer_camera_areas(view, manager->count, areas);
     for (size_t i = 0; i < manager->count; ++i) {
@@ -463,8 +799,9 @@ static void draw_camera_labels(NvrRenderer *view, NvrCameraManager *manager) {
         if (area.width <= 0 || area.height <= 0) continue;
         SDL_Rect bounds = {area.x, area.y, area.width, area.height};
         SDL_RenderSetClipRect(target->renderer, &bounds);
+        draw_media_controls(ui, target, &manager->cameras[i], i, area);
         overlay_button(target, quality_button(area), atomic_load(&manager->cameras[i].main_stream_requested) ? "FHD" : "HD");
-        overlay_button(target, detach_button(area), target == view ? "DESTACAR" : "VOLTAR");
+        overlay_button(target, detach_button(area), translate(ui, target == view ? "DESTACAR" : "VOLTAR"));
         SDL_Rect bg = {area.x+5, area.y+5, area.width < 230 ? area.width-10 : 220, 22};
         SDL_SetRenderDrawColor(target->renderer, 0, 0, 0, 90);
         SDL_RenderFillRect(target->renderer, &bg);
@@ -475,25 +812,32 @@ static void draw_camera_labels(NvrRenderer *view, NvrCameraManager *manager) {
 }
 
 void nvr_ui_draw(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
-    if (view->fullscreen_camera < 0) draw_menu(ui,view);
-    draw_camera_labels(view,manager);
+    if (view->fullscreen_camera < 0 && !view->hide_menu) draw_menu(ui,view);
+    draw_camera_labels(ui,view,manager);
+    if (view->hide_menu || view->fullscreen_camera >= 0) {
+        int width, height;
+        SDL_GetWindowSize(view->window, &width, &height);
+        (void)height;
+        overlay_button(view, (SDL_Rect){width-60,6,52,28}, "MENU");
+    }
+    if (ui->panel == NVR_UI_SETTINGS) { draw_settings(ui, view); return; }
     if (ui->panel == NVR_UI_LAYOUT) {
         SDL_SetRenderDrawColor(view->renderer,24,31,40,255); SDL_Rect panel={188,44,192,276}; SDL_RenderFillRect(view->renderer,&panel);
         const char *labels[]={"AUTOMATICO","1 TELA","2 TELAS","4 TELAS","6 TELAS","8 TELAS","9 TELAS"};
         const size_t values[]={0,1,2,4,6,8,9};
-        for(int i=0;i<7;i++) button(view->renderer,(SDL_Rect){190,48+i*38,190,34},labels[i],view->layout_slots==values[i]);
+        for(int i=0;i<7;i++) button(view->renderer,(SDL_Rect){190,48+i*38,190,34},translate(ui, labels[i]),view->layout_slots==values[i]);
     } else if (ui->panel == NVR_UI_ADD_CAMERA) {
         CameraForm form = camera_form(ui, view);
         SDL_SetRenderDrawBlendMode(view->renderer,SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(view->renderer,5,8,12,225); SDL_Rect shade={0,NVR_MENU_HEIGHT,10000,10000}; SDL_RenderFillRect(view->renderer,&shade);
         SDL_SetRenderDrawColor(view->renderer,24,31,40,255); SDL_RenderFillRect(view->renderer,&form.panel);
         clipped_text(view->renderer,(SDL_Rect){form.panel.x+14,form.panel.y+14,form.panel.w-28,16},
-                     form.panel.w >= 300 ? 2 : 1,(SDL_Color){238,242,247,255},ui->editing_index>=0?"EDITAR CAMERA":"ADICIONAR CAMERA");
+                     form.panel.w >= 300 ? 2 : 1,(SDL_Color){238,242,247,255},translate(ui, ui->editing_index>=0?"EDITAR CAMERA":"ADICIONAR CAMERA"));
         for(int row=0;row<form.rows;row++) {
             int i=ui->first_visible_field+row;
             SDL_Rect field=camera_field(form,row);
             clipped_text(view->renderer,(SDL_Rect){form.panel.x+14,field.y+10,form.field_x-form.panel.x-22,8},
-                         1,(SDL_Color){171,185,201,255},field_labels[i]);
+                         1,(SDL_Color){171,185,201,255},translate(ui, field_labels[i]));
             SDL_SetRenderDrawColor(view->renderer,i==ui->active_field?35:14,i==ui->active_field?91:20,i==ui->active_field?135:27,255);
             SDL_RenderFillRect(view->renderer,&field);
             SDL_SetRenderDrawColor(view->renderer,70,87,105,255); SDL_RenderDrawRect(view->renderer,&field);
@@ -504,11 +848,11 @@ void nvr_ui_draw(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
             clipped_text(view->renderer,(SDL_Rect){field.x+8,field.y+10,field.w-16,8},
                          1,(SDL_Color){235,240,246,255},shown);
         }
-        form_button(view->renderer,form.save,"SALVAR",0); form_button(view->renderer,form.cancel,"CANCELAR",-1);
-        if(ui->editing_index>=0)form_button(view->renderer,form.remove,ui->confirm_delete?"CONFIRMAR":"DELETAR",1);
-        form_notes(view->renderer,form);
+        form_button(view->renderer,form.save,translate(ui, "SALVAR"),0); form_button(view->renderer,form.cancel,translate(ui, "CANCELAR"),-1);
+        if(ui->editing_index>=0)form_button(view->renderer,form.remove,translate(ui, ui->confirm_delete?"CONFIRMAR":"DELETAR"),1);
+        form_notes(ui,view->renderer,form);
         if(ui->status[0]) clipped_text(view->renderer,(SDL_Rect){form.panel.x+14,form.status_y,form.panel.w-28,8},
-                                      1,(SDL_Color){240,90,90,255},ui->status);
+                                      1,(SDL_Color){240,90,90,255},translate(ui, ui->status));
     }
 }
 
