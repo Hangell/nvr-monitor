@@ -252,15 +252,39 @@ static int delete_camera(NvrUi *ui,NvrRenderer *view,NvrCameraManager *manager){
     if(nvr_camera_manager_remove(manager,index)||nvr_database_delete_camera(ui->database,index,error,sizeof(error))){
         snprintf(ui->status,sizeof(ui->status),"NAO FOI POSSIVEL DELETAR A CAMERA");return -1;
     }
+    nvr_renderer_attach(view, index);
+    for (size_t i = index; i + 1 < 9; ++i) view->detached[i] = view->detached[i+1];
+    view->detached[8] = NULL;
+    view->fullscreen_camera = -1;
     for(size_t i=0;i<view->texture_count;i++){SDL_DestroyTexture(view->textures[i]);view->textures[i]=NULL;}
     nvr_renderer_resize_cameras(view,manager->count);close_panel(ui);snprintf(ui->status,sizeof(ui->status),"CAMERA DELETADA");return 0;
 }
 
 static SDL_Rect quality_button(NvrRect area) {
-    int width = area.width < 110 ? area.width : 110;
-    return (SDL_Rect){area.x + (area.width - width) / 2,
-                      area.y + NVR_MENU_HEIGHT + area.height - NVR_CAMERA_FOOTER_HEIGHT + 4,
-                      width, 32};
+    int width = area.width < 58 ? area.width : 58;
+    return (SDL_Rect){area.x + area.width - width - 6,
+                      area.y + area.height - 30, width, 24};
+}
+
+static SDL_Rect detach_button(NvrRect area) {
+    SDL_Rect quality = quality_button(area);
+    return (SDL_Rect){quality.x - 88, quality.y, 82, 24};
+}
+
+static void toggle_quality(NvrCamera *camera) {
+    camera->grid_main_stream = !atomic_load(&camera->main_stream_requested);
+    nvr_camera_request_main_stream(camera, camera->grid_main_stream);
+}
+
+static void overlay_button(NvrRenderer *view, SDL_Rect rect, const char *label) {
+    int x, y;
+    SDL_GetMouseState(&x, &y);
+    int hover = SDL_GetMouseFocus() == view->window && inside(x, y, rect);
+    SDL_SetRenderDrawBlendMode(view->renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(view->renderer, 12, 18, 24, hover ? 210 : 70);
+    SDL_RenderFillRect(view->renderer, &rect);
+    clipped_text(view->renderer, (SDL_Rect){rect.x+6, rect.y+8, rect.w-12, 8}, 1,
+                 (SDL_Color){240,244,248,hover ? 255 : 150}, label);
 }
 
 static void leave_fullscreen(NvrRenderer *view, NvrCameraManager *manager) {
@@ -279,6 +303,43 @@ static void select_layout(NvrUi *ui, NvrRenderer *view, size_t slots) {
 int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
                         NvrCameraManager *manager) {
     if (event->type == SDL_QUIT) return 0;
+    Uint32 window_id = 0;
+    switch (event->type) {
+        case SDL_WINDOWEVENT: window_id = event->window.windowID; break;
+        case SDL_KEYDOWN: case SDL_KEYUP: window_id = event->key.windowID; break;
+        case SDL_MOUSEBUTTONDOWN: case SDL_MOUSEBUTTONUP: window_id = event->button.windowID; break;
+        case SDL_MOUSEMOTION: window_id = event->motion.windowID; break;
+        case SDL_MOUSEWHEEL: window_id = event->wheel.windowID; break;
+        case SDL_TEXTINPUT: window_id = event->text.windowID; break;
+        default: break;
+    }
+    for (size_t i = 0; i < manager->count && i < 9; ++i) {
+        NvrRenderer *child = view->detached[i];
+        if (!child || window_id != SDL_GetWindowID(child->window)) continue;
+        if ((event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_CLOSE) ||
+            (event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_ESCAPE)) {
+            nvr_renderer_attach(view, i);
+            nvr_camera_request_main_stream(&manager->cameras[i], manager->cameras[i].grid_main_stream);
+        } else if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
+            int width, height;
+            SDL_GetWindowSize(child->window, &width, &height);
+            NvrRect area = {0, 0, width, height};
+            int x = event->button.x, y = event->button.y;
+            if (inside(x, y, detach_button(area))) nvr_renderer_attach(view, i);
+            else if (inside(x, y, quality_button(area))) {
+                if (event->button.clicks == 1) toggle_quality(&manager->cameras[i]);
+            } else if (event->button.clicks == 2) {
+                Uint32 flags = SDL_GetWindowFlags(child->window);
+                if (SDL_SetWindowFullscreen(child->window,
+                    flags & SDL_WINDOW_FULLSCREEN_DESKTOP ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
+                    snprintf(ui->status, sizeof(ui->status), "NAO FOI POSSIVEL MAXIMIZAR A JANELA");
+            }
+        }
+        return 1;
+    }
+    if (window_id && window_id != SDL_GetWindowID(view->window)) return 1;
+    if (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_CLOSE) return 0;
+
     if (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_SIZE_CHANGED &&
         ui->panel == NVR_UI_ADD_CAMERA) show_active_field(ui, view);
     if (event->type == SDL_KEYDOWN) {
@@ -341,32 +402,34 @@ int nvr_ui_handle_event(NvrUi *ui, const SDL_Event *event, NvrRenderer *view,
     }
     if (view->fullscreen_camera < 0 && inside(x,y,(SDL_Rect){8,6,170,32})) { open_add(ui); return 1; }
     if (view->fullscreen_camera < 0 && inside(x,y,(SDL_Rect){188,6,130,32})) { ui->panel=NVR_UI_LAYOUT; return 1; }
-    if(view->fullscreen_camera<0&&manager->count){
-        int width,height;SDL_GetWindowSize(view->window,&width,&height);NvrRect areas[9];
-        size_t slots=view->layout_slots?view->layout_slots:manager->count;if(slots<manager->count)slots=manager->count;
-        nvr_layout_grid_slots(manager->count,slots,width,height-NVR_MENU_HEIGHT,areas,manager->count);
-        for(size_t i=0;i<manager->count;i++){
+    if (manager->count && event->button.button == SDL_BUTTON_LEFT) {
+        NvrRect areas[9];
+        nvr_renderer_camera_areas(view, manager->count, areas);
+        for (size_t i = 0; i < manager->count; ++i) {
+            if (!inside(x, y, (SDL_Rect){areas[i].x, areas[i].y, areas[i].width, areas[i].height})) continue;
             if (inside(x, y, quality_button(areas[i]))) {
-                if (event->button.button == SDL_BUTTON_LEFT && event->button.clicks == 1) {
-                    NvrCamera *camera = &manager->cameras[i];
-                    camera->grid_main_stream = !camera->grid_main_stream;
-                    nvr_camera_request_main_stream(camera, camera->grid_main_stream);
-                }
+                if (event->button.clicks == 1) toggle_quality(&manager->cameras[i]);
                 return 1;
             }
-            SDL_Rect label={areas[i].x+5,areas[i].y+NVR_MENU_HEIGHT+5,220,22};
-            if(inside(x,y,label)){open_edit(ui,&manager->cameras[i].config,i);return 1;}
+            if (inside(x, y, detach_button(areas[i]))) {
+                if (nvr_renderer_detach(view, i, manager->cameras[i].config.name))
+                    snprintf(ui->status, sizeof(ui->status), "NAO FOI POSSIVEL DESTACAR A CAMERA");
+                else nvr_camera_request_main_stream(&manager->cameras[i], manager->cameras[i].grid_main_stream);
+                return 1;
+            }
+            SDL_Rect label = {areas[i].x+5, areas[i].y+5,
+                              areas[i].width < 230 ? areas[i].width-10 : 220, 22};
+            if (view->fullscreen_camera < 0 && inside(x, y, label)) {
+                open_edit(ui, &manager->cameras[i].config, i); return 1;
+            }
         }
     }
-    if (event->button.clicks != 2 || !manager->count) return 1;
+    if (event->button.button != SDL_BUTTON_LEFT || event->button.clicks != 2 || !manager->count) return 1;
     int selected = view->fullscreen_camera;
     if (selected < 0) {
-        int width, height; SDL_GetWindowSize(view->window, &width, &height);
-        NvrRect areas[9]; size_t slots = view->layout_slots ? view->layout_slots : manager->count;
-        if (slots < manager->count) slots = manager->count;
-        nvr_layout_grid_slots(manager->count, slots, width, height-NVR_MENU_HEIGHT, areas, manager->count);
+        NvrRect areas[9];
+        nvr_renderer_camera_areas(view, manager->count, areas);
         for (size_t i=0;i<manager->count;i++) {
-            areas[i].y += NVR_MENU_HEIGHT;
             if (x>=areas[i].x && x<areas[i].x+areas[i].width && y>=areas[i].y && y<areas[i].y+areas[i].height) { selected=(int)i; break; }
         }
     }
@@ -388,22 +451,32 @@ static void draw_menu(NvrUi *ui, NvrRenderer *view) {
 }
 
 static void draw_camera_labels(NvrRenderer *view, NvrCameraManager *manager) {
-    if (!manager->count || view->fullscreen_camera >= 0) return;
-    int width,height; SDL_GetWindowSize(view->window,&width,&height); NvrRect areas[9];
-    size_t slots=view->layout_slots?view->layout_slots:manager->count; if(slots<manager->count)slots=manager->count;
-    nvr_layout_grid_slots(manager->count,slots,width,height-NVR_MENU_HEIGHT,areas,manager->count);
-    for(size_t i=0;i<manager->count;i++) {
-        button(view->renderer, quality_button(areas[i]),
-               manager->cameras[i].grid_main_stream ? "FHD" : "HD",
-               manager->cameras[i].grid_main_stream);
-        SDL_Rect bg={areas[i].x+5,areas[i].y+NVR_MENU_HEIGHT+5,220,22};
-        SDL_SetRenderDrawColor(view->renderer,0,0,0,185); SDL_RenderFillRect(view->renderer,&bg);
-        text(view->renderer,bg.x+6,bg.y+7,1,(SDL_Color){240,244,248,255},manager->cameras[i].config.name);
+    NvrRect areas[9];
+    nvr_renderer_camera_areas(view, manager->count, areas);
+    for (size_t i = 0; i < manager->count; ++i) {
+        NvrRenderer *target = view->detached[i] ? view->detached[i] : view;
+        NvrRect area = areas[i];
+        if (target != view) {
+            SDL_GetWindowSize(target->window, &area.width, &area.height);
+            area.x = area.y = 0;
+        }
+        if (area.width <= 0 || area.height <= 0) continue;
+        SDL_Rect bounds = {area.x, area.y, area.width, area.height};
+        SDL_RenderSetClipRect(target->renderer, &bounds);
+        overlay_button(target, quality_button(area), atomic_load(&manager->cameras[i].main_stream_requested) ? "FHD" : "HD");
+        overlay_button(target, detach_button(area), target == view ? "DESTACAR" : "VOLTAR");
+        SDL_Rect bg = {area.x+5, area.y+5, area.width < 230 ? area.width-10 : 220, 22};
+        SDL_SetRenderDrawColor(target->renderer, 0, 0, 0, 90);
+        SDL_RenderFillRect(target->renderer, &bg);
+        clipped_text(target->renderer, (SDL_Rect){bg.x+6,bg.y+7,bg.w-12,8}, 1,
+                     (SDL_Color){240,244,248,190}, manager->cameras[i].config.name);
+        SDL_RenderSetClipRect(target->renderer, NULL);
     }
 }
 
 void nvr_ui_draw(NvrUi *ui, NvrRenderer *view, NvrCameraManager *manager) {
-    if (view->fullscreen_camera < 0) { draw_menu(ui,view); draw_camera_labels(view,manager); }
+    if (view->fullscreen_camera < 0) draw_menu(ui,view);
+    draw_camera_labels(view,manager);
     if (ui->panel == NVR_UI_LAYOUT) {
         SDL_SetRenderDrawColor(view->renderer,24,31,40,255); SDL_Rect panel={188,44,192,276}; SDL_RenderFillRect(view->renderer,&panel);
         const char *labels[]={"AUTOMATICO","1 TELA","2 TELAS","4 TELAS","6 TELAS","8 TELAS","9 TELAS"};

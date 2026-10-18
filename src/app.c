@@ -65,7 +65,7 @@ int nvr_app_run(const char *config_path) {
             do {
                 running = nvr_ui_handle_event(&ui, &event, &renderer, &manager);
                 if (!running) break;
-                if (event.type != SDL_MOUSEMOTION) dirty = 1;
+                dirty = 1;
             } while (SDL_PollEvent(&event));
         }
         if (!running) break;
@@ -73,8 +73,8 @@ int nvr_app_run(const char *config_path) {
         int visible = !(flags & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN));
         for (size_t i = 0; i < manager.count; ++i) {
             NvrCamera *camera = &manager.cameras[i];
-            int displayed = visible && (renderer.fullscreen_camera < 0 ||
-                                       (size_t)renderer.fullscreen_camera == i);
+            int displayed = nvr_renderer_camera_visible(&renderer, i);
+            if (displayed) visible = 1;
             atomic_store(&camera->display_requested, displayed);
             if (displayed) {
                 pthread_mutex_lock(&camera->frames.mutex);
@@ -90,7 +90,11 @@ int nvr_app_run(const char *config_path) {
         if (visible && dirty) {
             nvr_renderer_draw(&renderer, &manager);
             nvr_ui_draw(&ui, &renderer, &manager);
-            SDL_RenderPresent(renderer.renderer);
+            if (!(SDL_GetWindowFlags(renderer.window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)))
+                SDL_RenderPresent(renderer.renderer);
+            for (size_t i = 0; i < manager.count; ++i)
+                if (renderer.detached[i] && nvr_renderer_camera_visible(&renderer, i))
+                    SDL_RenderPresent(renderer.detached[i]->renderer);
             dirty = 0;
         }
         next_frame = SDL_GetTicks() + (visible ? 40 : 250);

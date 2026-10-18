@@ -22,6 +22,11 @@ na grade, alterar os campos e clicar em SALVAR.**
 - Vídeo RTSP H.264/H.265, com UDP ou TCP configurável por câmera.
 - Grades de 1, 2, 4, 6, 8 ou 9 posições.
 - Duplo clique no vídeo para ampliar; `Esc` para voltar.
+- Controles HD/FHD discretos sobre o vídeo, sem rodapé reservando espaço.
+- **DESTACAR** abre uma câmera em janela independente: arraste-a para outro monitor.
+  As demais permanecem na grade. **VOLTAR**, `Esc` ou fechar a janela devolve a câmera ao painel.
+  Duplo clique na janela destacada alterna tela cheia no monitor onde ela está.
+  A janela destacada continua exibindo vídeo mesmo com o painel minimizado.
 - Cadastro, edição e exclusão de conexões pela interface.
 - Reconexão automática quando uma câmera perde a conexão.
 - Cadastro por IP/host ou MAC, com descoberta do IP atual na rede local.

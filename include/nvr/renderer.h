@@ -3,8 +3,9 @@
 
 #include <SDL.h>
 #include "nvr/camera_manager.h"
+#include "nvr/layout.h"
 
-typedef struct {
+typedef struct NvrRenderer {
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture **textures;
@@ -12,10 +13,14 @@ typedef struct {
     size_t texture_count;
     int fullscreen_camera;
     size_t layout_slots;
+    struct NvrRenderer *detached[9];
 } NvrRenderer;
 
 #define NVR_MENU_HEIGHT 44
-#define NVR_CAMERA_FOOTER_HEIGHT 40
+void nvr_renderer_camera_areas(NvrRenderer *view, size_t count, NvrRect areas[9]);
+int nvr_renderer_detach(NvrRenderer *view, size_t index, const char *title);
+void nvr_renderer_attach(NvrRenderer *view, size_t index);
+int nvr_renderer_camera_visible(NvrRenderer *view, size_t index);
 
 int nvr_renderer_init(NvrRenderer *renderer, const char *title, int width, int height,
                       size_t camera_count);
